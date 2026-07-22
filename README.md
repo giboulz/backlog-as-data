@@ -294,14 +294,16 @@ agent      backlog mature PARSE-07 --model sonnet --effort think \
            for the review dosage rather than choosing in your place)
 agent      /sdd-run-ticket PARSE-07
   hook       start → wip  (committed on main, scoped to this ticket's files)
-  agent      implementer spawned in an isolated worktree forked from main,
-             with the model/effort from the frontmatter; SDD discipline:
-             spec → failing tests → code → green verification → ONE commit
-             `feat(PARSE-07): …` → report, then STOPS (never integrates itself)
-  gate       orchestrator locates worktree+SHA programmatically,
-             spawns 1 fresh reviewer (light), collects findings,
-             checks git status unchanged, sends raw findings back,
-             implementer triages/fixes, orchestrator publishes the register
+  subagent   implementer sub-agent spawned in an isolated worktree forked
+             from main, with the model/effort from the frontmatter; SDD
+             discipline: spec → failing tests → code → green verification →
+             ONE commit `feat(PARSE-07): …` → report, then STOPS
+             (never integrates itself)
+  gate       the agent (as orchestrator) locates worktree+SHA
+             programmatically, spawns 1 fresh reviewer sub-agent (light),
+             collects findings, checks git status unchanged, sends raw
+             findings back, implementer triages/fixes, orchestrator
+             publishes the register
 agent      /send   (run by the orchestrator from the implementer's worktree)
   hook       merge → merged  (PARSE-07's feat commit is on main)
 you        "deploy"
