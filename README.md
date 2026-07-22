@@ -110,11 +110,14 @@ The spec body. Design, contracts, test cases. The ticket file IS the spec —
 or points to a domain spec that is.
 ```
 
-Everything below the frontmatter is the spec: free prose, owned by whoever
-writes specs. The frontmatter is data: owned by the CLI, mutated only through
-it. That split is the whole trick — spec-writing stays a writing activity,
-backlog management becomes data manipulation, and they live in the same file so
-they can never drift apart.
+Everything below the frontmatter is the spec: free prose. It could be written
+by anyone — here it is written **by the LLM**: I express a need in
+conversation, the agent challenges it, and once we agree, the agent writes the
+spec (see [How a ticket flows](#how-a-ticket-flows-end-to-end)). The
+frontmatter is data: owned by the CLI, mutated only through it. That split is
+the whole trick — spec-writing stays a writing activity (a conversational one,
+in my case), backlog management becomes data manipulation, and they live in
+the same file so they can never drift apart.
 
 Mutations go through a CLI (bundled to a single self-contained `.mjs`, installed
 once in `~/.claude/tools/backlog/`, operating on whatever project `cwd` is in).
