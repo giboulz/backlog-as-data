@@ -292,6 +292,33 @@ stayed in its lane and the most lane-disciplined reviewer found the *least*.
 `deep` buys three decorrelated samples of the same diff, not three complementary
 coverages.
 
+## Who does what: scripts attest, the LLM judges, sub-agents generate
+
+Mapping the whole pipeline by *who performs each step* reveals the system's
+quiet design rule. Every step is one of three kinds:
+
+- **Deterministic scripts** — the preflight resolver (`resolve`/`locate`), the
+  lifecycle hooks, git operations, coherence tests. They emit JSON or exit
+  codes; they are the only producers of **evidence** (the commit SHA, the
+  `git status` proofs, the backlog statuses). *Attestation is always produced
+  by a script, never by the entity it controls.*
+- **LLM judgment (orchestrator)** — scope arbitration, spec writing,
+  dependency confirmation, merging duplicate findings, writing the review
+  register. Things that genuinely require judgment, kept in conversation.
+- **LLM generation (sub-agents)** — the implementer and the reviewers. The
+  generative work, behind guards on both sides.
+
+The design trajectory follows from incidents: **every time a mechanical step
+lived as prose instructions executed by the LLM, it eventually failed** — a
+tilde not expanded, an `awk` positional field eaten by placeholder
+substitution, a SHA hand-transcribed to 39 characters. Each of those steps was
+moved out of prose into a deterministic tool that the skill calls once and
+reads JSON from. Prose is for judgment; mechanics get a script. The guards are
+the same story in decision form: every checkpoint is **fail-closed** (ticket
+not found, maturation not on main, dirty tree, SHA mismatch → STOP), so the
+pipeline stops rather than drift into "everything works, but in the wrong
+tree".
+
 ## How a ticket flows (end to end)
 
 The division of labor matters: **the human never runs the CLI, never writes
@@ -314,6 +341,9 @@ agent      backlog mature PARSE-07 --model sonnet --effort think \
              --review light --date 2026-07-22            # status: todo
            (the triplet is a maturation decision — the agent asks you
            for the review dosage rather than choosing in your place)
+           …maturation committed and integrated into main: the implementer's
+           worktree forks from main, so an unmerged maturation is invisible
+           to it — a preflight guard blocks the launch until it is there
 agent      /sdd-run-ticket PARSE-07
   hook       start → wip  (committed on main, scoped to this ticket's files)
   subagent   implementer sub-agent spawned in an isolated worktree forked
