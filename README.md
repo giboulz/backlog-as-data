@@ -135,8 +135,15 @@ backlog init                                                   # adopt on any pr
 ```
 
 Every mutation regenerates **both** projections in the same gesture:
-`backlog.json` (consumed by an admin board) and `specs/backlog.md` (readable in
-git). The generated view opens with a sentinel comment — `DO NOT EDIT BY HAND` —
+`backlog.json` and `specs/backlog.md` (readable in git). This is what
+projections are *for*: in my setup, a small web board on my server renders
+`backlog.json` to visualize the backlog, and since every ticket carries its
+`file` path, clicking a card opens GitHub directly on the spec. The board
+needs zero write access — it is a pure view over git data, and any other view
+(the `backlog list` terminal command, the generated markdown) is just another
+projection of the same frontmatter.
+
+The generated view opens with a sentinel comment — `DO NOT EDIT BY HAND` —
 and the renderer **refuses to overwrite a file that lacks the sentinel**, so a
 legacy hand-written backlog restored by a bad merge can never be silently
 clobbered, and a hand-edit is flagged instead of being overwritten in silence.
@@ -187,6 +194,16 @@ Covered above, but three design points are worth stealing on their own:
   multi-line values — free text belongs in the body, never the frontmatter.
   Small enough to be round-trip-safe and CRLF-proof, which is what lets the
   serializer rewrite files without ever mangling a spec.
+- **Ticket ids are allocated against `main`, not the current worktree.** Since
+  every conversation lives in its own worktree, an id that looks free locally
+  may already be shipped on main (the branch forked before it landed). So
+  `backlog new` also reads the ids present on the integration branch
+  (`git ls-tree main:specs`, read-only, never fatal) and refuses a taken id
+  with a suggestion for the next free one — always *beyond the highest taken*,
+  never reusing a gap: history may already carry a `feat(SCOPE-41): …` for
+  something else, and gaps are free. The residual race (two parallel sessions
+  grabbing the same number between two syncs) surfaces as an add/add conflict
+  at merge, and the LLM resolves it there by renumbering its own ticket.
 
 ### Maturation: dosing model / effort / review per ticket
 
