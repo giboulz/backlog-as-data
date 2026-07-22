@@ -347,15 +347,25 @@ agent      backlog mature PARSE-07 --model sonnet --effort think \
 agent      /sdd-run-ticket PARSE-07
   hook       start → wip  (committed on main, scoped to this ticket's files)
   subagent   implementer sub-agent spawned in an isolated worktree forked
-             from main, with the model/effort from the frontmatter; SDD
-             discipline: spec → failing tests → code → green verification →
-             ONE commit `feat(PARSE-07): …` → report, then STOPS
-             (never integrates itself)
-  gate       the agent (as orchestrator) locates worktree+SHA
-             programmatically, spawns 1 fresh reviewer sub-agent (light),
-             collects findings, checks git status unchanged, sends raw
-             findings back, implementer triages/fixes, orchestrator
-             publishes the register
+             from main — running THE model decided at maturation, nothing
+             else: the orchestrator copies `model`/`effort` from the
+             frontmatter, it does not choose, and the sub-agent's report
+             must open with `Model used: …` so the decision is verifiable
+             after the fact. SDD discipline: spec → failing tests → code →
+             green verification → ONE commit `feat(PARSE-07): …` → report,
+             then STOPS (never integrates itself)
+  gate       dosage read from the frontmatter: `none` → no gate, straight
+             to integration · `light` → 1 reviewer · `deep` → 3 in
+             parallel. Reviewers are FRESH sub-agents: blank context —
+             ticket id, spec path, worktree, SHA and the 4 review axes,
+             nothing else (all four axes each, always; `deep` adds a
+             different priority lens per reviewer, never a subset).
+             The orchestrator locates worktree+SHA programmatically,
+             collects the reviewers' reports, checks git status unchanged —
+             then resumes THE IMPLEMENTER with the raw findings, verbatim:
+             the implementer (context intact) triages E1/E2/E3 and fixes;
+             the orchestrator never touches the code. It closes by
+             verifying the fix commits exist and publishing the register
 agent      /send   (run by the orchestrator from the implementer's worktree)
   hook       merge → merged  (PARSE-07's feat commit is on main)
 you        "deploy"
