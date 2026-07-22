@@ -98,7 +98,10 @@ backlog management becomes data manipulation, and they live in the same file so
 they can never drift apart.
 
 Mutations go through a CLI (bundled to a single self-contained `.mjs`, installed
-once in `~/.claude/tools/backlog/`, operating on whatever project `cwd` is in):
+once in `~/.claude/tools/backlog/`, operating on whatever project `cwd` is in).
+Note that the CLI is **agent-facing**: in practice the human never types these
+commands — they state intents in conversation, and the agent maps them to
+exactly one CLI verb (see [How a ticket flows](#how-a-ticket-flows-end-to-end)):
 
 ```
 backlog new ANALYTICS-02 --epic analytics --priority should   # creates in `maturing`
@@ -269,26 +272,46 @@ coverages.
 
 ## How a ticket flows (end to end)
 
+The division of labor matters: **the human never runs the CLI, never writes
+frontmatter, and never edits the spec files directly**. You steer in
+conversation; the agent does all the mechanics through the CLI (that is what
+makes the mutations deterministic — the agent has no hand-editing path). A
+typical cycle, as it actually happens:
+
 ```
-you      backlog new PARSE-07 --priority should         # status: maturing
-you      …write the spec body (design, contracts, test list)…
-you      backlog mature PARSE-07 --model sonnet --effort think --review light --date 2026-07-22
-                                                        # status: todo, exec triplet set
-you      /sdd-run-ticket PARSE-07
-  hook     start → wip  (committed on main, scoped to this ticket's files)
-  agent    implementer spawned in an isolated worktree forked from main,
-           with the model/effort from the frontmatter; SDD discipline:
-           spec → failing tests → code → green verification → ONE commit
-           `feat(PARSE-07): …` → report, then STOPS (never integrates itself)
-  gate     orchestrator locates worktree+SHA programmatically,
-           spawns 1 fresh reviewer (light), collects findings,
-           checks git status unchanged, sends raw findings back,
-           implementer triages/fixes, orchestrator publishes the register
-you      /send   (run by the orchestrator from the implementer's worktree)
-  hook     merge → merged  (PARSE-07's feat commit is on main)
-you      /deploy
-  hook     ship → shipped  (pushed to prod in the same push)
+you        open a conversation on a fresh worktree:
+           "we should handle X" — one ticket, or an epic to slice
+you+agent  discussion until the need is agreed — requirements elicitation
+           happens in chat, not in the spec file
+agent      once agreed, records it:
+             backlog new PARSE-07 --priority should      # status: maturing
+           and writes the spec body (design, contracts, test list)
+           from the conversation
+you        "mature it, then run it"
+agent      backlog mature PARSE-07 --model sonnet --effort think \
+             --review light --date 2026-07-22            # status: todo
+           (the triplet is a maturation decision — the agent asks you
+           for the review dosage rather than choosing in your place)
+agent      /sdd-run-ticket PARSE-07
+  hook       start → wip  (committed on main, scoped to this ticket's files)
+  agent      implementer spawned in an isolated worktree forked from main,
+             with the model/effort from the frontmatter; SDD discipline:
+             spec → failing tests → code → green verification → ONE commit
+             `feat(PARSE-07): …` → report, then STOPS (never integrates itself)
+  gate       orchestrator locates worktree+SHA programmatically,
+             spawns 1 fresh reviewer (light), collects findings,
+             checks git status unchanged, sends raw findings back,
+             implementer triages/fixes, orchestrator publishes the register
+agent      /send   (run by the orchestrator from the implementer's worktree)
+  hook       merge → merged  (PARSE-07's feat commit is on main)
+you        "deploy"
+agent      /deploy
+  hook       ship → shipped  (pushed to prod in the same push)
 ```
+
+The human's three touchpoints are all decisions, never mechanics: agreeing on
+the need, choosing to mature-and-run (with the review dosage), and deciding to
+deploy. Everything between two touchpoints is the agent's.
 
 The implementer also has standing orders worth stealing: never touch the
 backlog artifacts (`wip`/`merged`/`shipped` come from hooks keyed on its commit
