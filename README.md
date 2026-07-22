@@ -390,6 +390,31 @@ warnings so agents re-read them at the point of failure:
   probe is suffixed with the ticket id, or parallel agents lock each other's
   worktrees.
 
+## Open problem: the skill does not improve itself
+
+Everything in the section above got into the skill the same way: an incident
+happened, and the operator wrote the lesson back into the skill **at the point
+of failure**, so the next agent re-reads it exactly where it is about to make
+the mistake. That retrospective loop is the system's real engine — and it is
+**nowhere in the system**. It lives in the operator's habits (a scrum master's
+reflex: no incident without a retro), not in the skill.
+
+The structural pieces for closing the loop already exist: the skills are
+themselves tickets (`SKILL-NN`) in the harness repo, and cross-repo mode means
+an improvement to the skill can be specced, matured and delivered through the
+very pipeline it describes. What is missing is the **trigger** — nothing in
+the orchestrator's checklist says: *"if this run surprised you (a guard fired,
+a failure no warning covers, a workaround you had to invent), open a ticket
+against the skill before closing the cycle."*
+
+This is deliberately listed as an opening, not a TODO with a known design.
+Automating retrospection has a real failure mode: rules accreting without
+pruning, until the skill is all warnings and no signal. Today the human habit
+is the filter that decides which incident deserves to become a rule. Encoding
+the *trigger* while keeping the human as the filter is probably the right
+shape — but that is exactly the kind of claim this system tests before
+trusting.
+
 ## Comparison with existing tools
 
 Snapshot as of July 2026 (a proper research pass, not vibes — traction numbers
