@@ -1335,7 +1335,7 @@ Never count such a report in `R`.
 
 ## Step 6.5 — Resume the implementer with the raw findings
 
-Merge the duplicates across reports (`R` raw reports → `U` unique findings),
+Merge the duplicates across reports (`R` raised findings → `U` unique findings),
 number the unique ones from 1 to `U`, and **resume the implementer**
 (`SendMessage` to the Step 6 agent — its context is intact, it reloads
 nothing) with this message:
@@ -1384,7 +1384,7 @@ outgoing **dispositions** (the implementer's table). Cross them and publish
 the register — it is a **constatation**, not a transcribed declaration:
 
 ```
-Review: <n> reviewer(s) · R raw reports · U unique findings after merge
+Review: <n> reviewer(s) · R raised findings · U unique after merge
 | # | Finding (short title) | Reviewer | Disposition |
 |---|---|---|---|
 | 1 | …                     | A        | fixed (<sha>) |
@@ -1394,10 +1394,11 @@ Check: U unique = U disposed ✓
 git status during the review: clean | WROTE — <what moved>
 ```
 
-- **Two distinct counters, not one.** `R` = the **raw reports** (the sum of
-  findings across all reports, before duplicate merge). `U` = the **unique**
-  findings after merge. Three reviewers raising the same finding give
-  `R=3, U=1`. Replace `R` and `U` with the real numbers.
+- **Two distinct counters, not one.** `R` = the **raw raised findings** (the
+  sum of findings across all reports, before duplicate merge — a count of
+  findings, not of reports). `U` = the **unique** findings after merge. Three
+  reviewers raising the same finding give `R=3, U=1`. Replace `R` and `U` with
+  the real numbers.
 - A finding raised by several reviewers is **one line**, with all its
   reviewers in the "Reviewer" column — it is that column, with `R`, that
   measures redundancy across dosages. You alone know that attribution: you
@@ -1617,10 +1618,10 @@ need the tree.
           ...
 [notif]   Agent "SDD ANALYTICS-02S" completed. Commit d1f1ef7, 8 tests green.
 [skill]   → worktree + SHA re-read programmatically, git status clean
-          → 1 reviewer spawned (light), 2 raw reports
+          → 1 reviewer spawned (light), 2 findings raised
           → implementer resumed with the 2 findings, dispositions returned
 [skill]   ✓ ANALYTICS-02S delivered.
-          Review: 1 reviewer · 2 raw reports · 2 unique findings after merge
+          Review: 1 reviewer · 2 raised findings · 2 unique after merge
           | # | Finding                    | Reviewer | Disposition |
           |---|----------------------------|----------|-------------|
           | 1 | empty batch unhandled      | A        | escalated — E1: the spec does not say what to do |

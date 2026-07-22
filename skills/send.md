@@ -132,8 +132,9 @@ npm test -- coherence
 ```
 
 - If the exit code is non-zero: **stop immediately**, display the failed
-  tests. The rebase produced an incoherent state — the user must fix the
-  backlog then relaunch. **Do not fast-forward into main.**
+  tests. The rebase produced an incoherent state (typically an active/done
+  duplicate) — the user must fix the backlog (remove the stale active entry)
+  then relaunch. **Do not fast-forward into main.**
 
 ---
 

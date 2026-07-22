@@ -27,6 +27,11 @@ Free text describing the desired mutation. Map it to **one** CLI command.
 
 ## Step 0 — Resolve the global tool
 
+**Substitutions used in this skill**: `<source-repo>` — the local checkout of
+the repo that ships the bundle (the same convention the CLI's own
+`self-update` message uses). Substitute the real path when displaying the
+install message.
+
 ```bash
 TOOL="$(node -e "console.log(require('path').join(require('os').homedir(),'.claude','tools','backlog','backlog.mjs'))")"
 [ -f "$TOOL" ] || echo "✗ backlog tool absent — install it (node <source-repo>/dist-backlog/backlog.mjs self-update)"
