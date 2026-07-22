@@ -66,6 +66,25 @@ agent sessions. Markdown to-do documents kept failing in the same ways:
   YAML-subset parser (round-trip-safe, CRLF-tolerant), enforced by every CLI
   entry point.
 
+### The stance behind it: code as a black box
+
+A personal disclosure, because it explains most of the design. I'm a scrum
+master; I was a developer ten years ago. I have enough background to discuss
+design and trade-offs with an LLM — but with SDD I made a deliberate choice to
+treat the code as a **black box, controlled by tests**. The specs define the
+tests; the tests control the code; **I never read the code.**
+
+That is my own bet, and only mine — I am not claiming it is what everyone
+should do. But it is what forced this system into existence: when nobody reads
+the code, the process has to carry the trust that a code-reading human would
+normally provide. Hence machine-checkable invariants everywhere, hence a
+review gate that is fully automated (fresh-context reviewers instead of my
+eyes), and hence its role: not a ceremony that certifies quality, but a lean
+mechanism — catch the misses as early as possible, at the lowest possible
+cost. The dosage (`review: none|light|deep`, decided at maturation) is exactly
+that lean calibration: pay for defect detection in proportion to the cost of a
+defect slipping through.
+
 ## The data model
 
 A ticket is a markdown file in `specs/` whose frontmatter carries the state:
