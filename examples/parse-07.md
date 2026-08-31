@@ -4,10 +4,11 @@ title: Tolerate CRLF in decklist import
 type: ticket
 status: todo
 priority: should
+kind: bug
 epic: import
 exec:
   model: sonnet
-  effort: think
+  effort: medium
   review: light
   matured: 2026-07-22
 ---

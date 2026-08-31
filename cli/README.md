@@ -1,8 +1,13 @@
 # CLI source (verbatim)
 
 This folder is the **verbatim** TypeScript source of the backlog CLI, extracted
-from the host project's `lib/backlog/`. Comments are in French — the design
+from its own repository's `lib/backlog/`. Comments are in French — the design
 rationale they carry is covered in English in the [root README](../README.md).
+
+(The first extraction took this code out of the application project that was its
+first user. The CLI has since been split into a standalone repository, which is
+now the canonical source — the bundle at `~/.claude/tools/backlog/backlog.mjs` is
+one of its build artifacts, and this folder is a copy of it.)
 
 | File | Role |
 |---|---|
@@ -19,6 +24,6 @@ Build note: in the source system this compiles with `tsc` (strict) and is
 bundled by esbuild into a single self-contained `backlog.mjs`, installed once
 at `~/.claude/tools/backlog/` (`self-update` verb). Only runtime dependency:
 `zod`. The test suite (parser round-trip, snapshot determinism, hook planning
-K1-K6, CLI dispatch, plus the coherence tests that run in the `/send` guard)
-lives in the host project and is not extracted here — it leans on the host's
-runner config.
+K1-K6, CLI dispatch, escalation parsing, plus the coherence tests that run in the
+`/send` guard) lives alongside the source in that repository and is larger than
+the code it covers; it is not extracted here.

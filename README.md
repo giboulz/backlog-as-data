@@ -99,7 +99,7 @@ priority: should
 epic: analytics
 exec:
   model: sonnet
-  effort: think-hard
+  effort: medium
   review: light
   matured: 2026-06-12
 ---
@@ -127,7 +127,7 @@ exactly one CLI verb (see [How a ticket flows](#how-a-ticket-flows-end-to-end)):
 
 ```
 backlog new ANALYTICS-02 --epic analytics --priority should   # creates in `maturing`
-backlog mature ANALYTICS-02 --model sonnet --effort think-hard --review light --date 2026-06-12
+backlog mature ANALYTICS-02 --model sonnet --effort medium --review light --date 2026-06-12
 backlog set ANALYTICS-02 status=parked                         # explicit correction only
 backlog snapshot                                               # regenerate projections
 backlog list                                                   # terminal view, no web board needed
@@ -212,18 +212,25 @@ decisions *as data*:
 
 | Field | Values | What it doses |
 |---|---|---|
-| `model` | `fable` · `opus` · `sonnet` · `haiku` | Which model implements the ticket |
-| `effort` | `none` · `think` · `think-hard` · `ultrathink` | Reasoning depth, injected into the implementer's prompt |
+| `model` | `opus` · `sonnet` (· `fable`) | Which model implements the ticket |
+| `effort` | `low` · `medium` · `high` · `xhigh` · `max` | The sub-agent's **actual** reasoning tier |
 | `review` | `none` · `light` · `deep` | The review gate: 0, 1, or 3 fresh-context reviewers |
+
+`effort` is not a word in a prompt. The harness has no effort parameter on the
+spawn call, so the only mechanical lever is the `effort:` field of an agent
+definition — the runner keeps one agent-def per tier (`sdd-impl-low` …
+`sdd-impl-max`) and selects it from this field, overriding only the model per
+call. The prompt still states the tier as well, as a backstop; the agent-def is
+what actually moves the dial.
 
 Why this matters: agent runs have a per-ticket cost/quality trade-off, and the
 right place to decide it is **at planning time, deliberately** — not at launch
 time, implicitly, by whoever happens to type the command. A trivial rename gets
-`haiku / none / none`. An irreversible data migration gets
-`fable / ultrathink / deep`. The decision is versioned with the ticket and
-auditable after the fact (`matured: <date>`).
+`sonnet / low / none`. An irreversible data migration gets `opus / max / deep`.
+The decision is versioned with the ticket and auditable after the fact
+(`matured: <date>`).
 
-Two hard-won rules ride along:
+Three hard-won rules ride along:
 
 - **`review` absent = `light`, and the default lives in the consumer** — the
   runner applies it; the CLI never writes a default into the frontmatter. Data
@@ -235,6 +242,25 @@ Two hard-won rules ride along:
   not have distinguished them. Criterion that actually works: *if this defect
   slipped through, would anything else catch it?* No test would catch it, or
   publicly visible → `deep`. Will explode on next use anyway → `light`.
+- **The triplet has a floor, checked by the tool: `high`/`xhigh`/`max` require
+  at least `opus`.** A high reasoning tier on a cheap model is the combination
+  that produces confident nonsense, so `mature` refuses it. It is a *floor*,
+  not a pairing — `opus` on a `low` effort is never questioned, and `low`/
+  `medium` have no floor at all. Overriding it is `--override-coherence`: a
+  **gesture, not a written justification**, for exactly the reason
+  `--review-why` was rejected above. `fable` is an accepted value but is
+  classified nowhere in the scale, so it is *refused* above the floor rather
+  than presumed above it.
+
+One migration note, because it is the reason this renaming cost nothing. Both
+vocabularies changed after the system was already in daily use: `haiku` was
+dropped from the scale (zero observed use, and anything
+trivial enough for it is already safe on `sonnet`), and the old effort names
+were renamed to the harness's real tiers. The parser is **tolerant on
+read, strict on write**: a historical ticket carrying `effort: think-hard` still
+loads and is normalized to `high` in the projection, while `mature` refuses to
+*write* a legacy value. So the tickets already on disk were never rewritten —
+and `backlog.json` nonetheless contains only official values.
 
 ### Lifecycle hooks tied to the git flow
 
@@ -354,7 +380,7 @@ agent      once agreed, records it:
            and writes the spec body (design, contracts, test list)
            from the conversation
 you        "mature it, then run it"
-agent      backlog mature PARSE-07 --model sonnet --effort think \
+agent      backlog mature PARSE-07 --model sonnet --effort medium \
              --review light --date 2026-07-22            # status: todo
            (the triplet is a maturation decision — the agent asks you
            for the review dosage rather than choosing in your place)
@@ -416,11 +442,18 @@ commit).
 The skills are Claude Code slash commands (`~/.claude/commands/*.md`); the CLI
 is bundled (esbuild) into a single `backlog.mjs` installed under
 `~/.claude/tools/backlog/` and invoked by the skills through `$HOME` resolution.
-The only runtime dependency of the CLI source is `zod`. In the source system the
-CLI has a full test suite (parser round-trip, snapshot determinism, hook
-planning, CLI dispatch — including coherence tests that run in the `/send`
-guard); tests are not extracted here because they lean on the host project's
-runner config.
+The only runtime dependency of the CLI source is `zod`.
+
+**Where the code actually lives.** When this repo was first extracted, the CLI
+was a folder inside the application project that happened to be its first user,
+and its tests leaned on that project's runner config. It has since moved out
+into its own repository, which is now the canonical source: the bundle at
+`~/.claude/tools/backlog/backlog.mjs` is a build artifact of it, and the copy
+under [`cli/`](cli/) here is an extraction *of that repo*, not of an application.
+The test suite (parser round-trip, snapshot determinism, hook planning K1-K6,
+CLI dispatch, escalation parsing) moved with it and is larger than the source it
+covers; it is not duplicated here, but it is no longer stuck in someone else's
+project either.
 
 ## Scar tissue (incidents that shaped the design)
 
@@ -508,7 +541,7 @@ conventions). What transplants well, in increasing order of effort:
    of it is in [`skills/sdd-run-ticket.md`](skills/sdd-run-ticket.md) and
    portable to any harness with sub-agents.
 4. **The CLI + hooks** — needs adaptation (paths, bundling, your integration
-   commands), but the core is ~2,200 lines of TypeScript with one dependency.
+   commands), but the core is ~3,900 lines of TypeScript with one dependency.
 
 ## License
 

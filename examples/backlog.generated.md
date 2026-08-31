@@ -8,6 +8,7 @@
 > by editing this file.
 > State model: `parked · maturing · todo · wip · merged · shipped · wont`
 > (+ `priority` = MoSCoW commitment, `exec` block = maturation).
+> Details: `node ~/.claude/tools/backlog/backlog.mjs help`.
 
 ## Maturing (1)
 
@@ -15,7 +16,7 @@
 
 ## Todo (1)
 
-- **PARSE-07 — Tolerate CRLF in decklist import** _(should · import · sonnet · think · review:light · 2026-07-22)_ — [spec](parse-07.md)
+- **PARSE-07 — Tolerate CRLF in decklist import** _(should · import · sonnet · medium · review:light · 2026-07-22)_ — [spec](parse-07.md)
 
 ## WIP (0)
 
@@ -27,7 +28,7 @@ _(empty)_
 
 ## Shipped (1)
 
-- **PARSE-06 — Ignore blank lines in decklist import** _(should · import · haiku · none · review:none · 2026-07-18)_ — [spec](parse-06.md)
+- **PARSE-06 — Ignore blank lines in decklist import** _(should · import · sonnet · low · review:none · 2026-07-18)_ — [spec](parse-06.md)
 
 ## Parked (0)
 
