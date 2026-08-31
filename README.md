@@ -46,6 +46,13 @@ published tool combines (see [Comparison](#comparison-with-existing-tools)):
   "where is it in the pipeline?". Conflating them is the most common failure
   mode I saw in LLM-managed backlogs.
 
+Those four are the data model and the pipeline over it. The fifth thing, which
+an earlier version of this README listed as an unsolved problem, is
+[the loop that feeds the skill](#the-loop-that-feeds-the-skill-this-section-used-to-be-the-open-problem):
+friction gets captured raw, mined for what actually repeats, and routed into
+whichever mechanism already owns it — with the human kept as the filter on
+purpose.
+
 ## Why
 
 This came out of running Claude Code daily on a solo project with many parallel
@@ -205,6 +212,39 @@ Covered above, but three design points are worth stealing on their own:
   grabbing the same number between two syncs) surfaces as an add/add conflict
   at merge, and the LLM resolves it there by renumbering its own ticket.
 
+### Maturing a spec: five checks before a clause gets written
+
+"Maturing" a ticket covers two different acts that share a name. One is dosing
+the triplet, below. The other is writing the spec — deciding what the ticket
+actually prescribes — and that is where an LLM writing specs fails, in a way that
+turned out to be repetitive enough to write down. The failures all have the same
+shape: **the spec is confident about a repository it did not open.** Five checks,
+applied before a clause is written:
+
+1. **Grep the name, not only the carriers you know about.** Search the whole repo
+   for the name of the thing the ticket changes — function, constant, path, a
+   prescriptive sentence — comments and test fixtures included. A carrier you did
+   not grep is a carrier you did not see.
+2. **Follow the side effect of the gesture you are prescribing.** For each one:
+   what references the thing I am inserting, moving, or deleting? Inserting
+   shifts line numbers. Moving a comment widens the scope of what it asserts.
+   Deleting a site makes everything citing it stale.
+3. **Enumerate the branches of the mechanism you touch.** A scope that touches a
+   predicate, a dosage, or a state machine has to say what it does with *every*
+   case — not only the one that motivated the ticket.
+4. **Read your own clauses against each other.** Never write "X is unchanged"
+   without checking that the prescribed gesture does not touch X. A
+   non-regression clause *enumerates* the cases that stay green and *names* the
+   ones this ticket invalidates. "All of them, untouched" is not a clause, it is
+   a hope.
+5. **Open the repository the spec targets.** What a clause prescribes *in* a repo
+   is verified *in* that repo, before being written: a command it cites exists in
+   that project's manifest **and** is permitted by that project's rules — "the
+   script exists" is not "the script is allowed"; a file it promises to deliver
+   is actually tracked by git; a path it names exists. In cross-repo work this is
+   the normal case, not the edge case: the spec is written from a session open
+   somewhere else.
+
 ### Maturation: dosing model / effort / review per ticket
 
 `backlog mature` is the moment a ticket becomes runnable, and it forces three
@@ -325,6 +365,13 @@ back → integration. The gate design is the part I have not seen elsewhere:
   that declared conformant the very decisions it was missing a defect in. And
   "0 findings + remarks in prose" is a contradiction: an off-format remark *is*
   a finding someone filtered.
+- **The review runs at a fixed setting, not the session's.** Reviewers are
+  spawned through a dedicated agent definition pinned to a strong model and a
+  high reasoning tier, and the spawn passes **no** model parameter. Before that,
+  a reviewer inherited whatever the orchestrating session happened to be running
+  — so the same `deep` dosage bought a strong review or a weak one depending on
+  a setting nobody was thinking about at that moment. The *number* of reviewers
+  stays a per-ticket dosage; their **power** stopped being one.
 - **One round.** After dispositions, no second wave of reviewers. Review gates
   that loop become polishing loops.
 
@@ -334,6 +381,81 @@ priority lens. Axes are never partitioned: on a real `deep` run, no reviewer
 stayed in its lane and the most lane-disciplined reviewer found the *least*.
 `deep` buys three decorrelated samples of the same diff, not three complementary
 coverages.
+
+Decorrelation is protected mechanically, not just intended. At `deep` each
+reviewer writes to its **own** report file, outside any repository — never a
+shared one, because with a shared file a reviewer would read another's findings
+and the independence that is the entire value of the dosage would be gone. And
+each run computes a **fresh** suffix for those paths, so that re-running the
+gate on the same ticket after an abort cannot have a reviewer pick up a stale
+report from the previous attempt.
+
+Three samples of the same diff overlap, so `deep` adds a fourth sub-agent: an
+**aggregator** that never reads code. It gets the three raw report files and
+returns one deduplicated list, renumbered from 1, each entry copied verbatim
+from one of its sources — never rephrased. Two rules make it worth its cost:
+
+- **It is blind to provenance.** It is not told which reviewer wrote which
+  report, nor which lens each had. It cannot weight a finding by its author,
+  because it does not know the author.
+- **The deduplicated list carries no attribution either** — not the reviewer,
+  not the dosage, and above all **not how many of the three reported it**. That
+  count exists, in a separate correspondence table mapping every raw finding to
+  the unique it landed on; but that table goes to the orchestrator, not to the
+  implementer. The implementer must not get to reason "only one of three flagged
+  this, so it is probably noise" — that is exactly the silent dismissal the
+  disposition rule forbids. The table's real job is arithmetic: its row count
+  must equal the sum of the three reports' totals, which is how the orchestrator
+  proves nothing was lost in the merge.
+
+### An escalation is a row, not a remark
+
+The gate produces two kinds of residue. Fixed findings leave a commit. Escalated
+ones used to leave *nothing*: the register was published in conversation and died
+with the session, so "someone must arbitrate this" survived only as long as the
+operator remembered it.
+
+E1 in particular deserves better than that. It means *the "what" has to change* —
+so its most frequent object is a defect **in the spec itself**, found by a
+reviewer who read the code against a contract that turned out to be wrong. The
+implementer cannot fix it: it is forbidden to touch the spec, and that
+prohibition is the whole reason the review has a fixed contract to judge against.
+
+So the orchestrator writes it down, in the ticket's own spec file:
+
+- **In the body, never the frontmatter.** The frontmatter is mutated exclusively
+  by the CLI; an escalation is prose. It gets appended under a single
+  `## Escalations` container, one level-3 heading per escalation.
+- **The heading is a machine contract.** Its title must *start* with the tag
+  (`E1`, `E3`, `E1/E3`, optionally suffixed — `E1 (finding 2)`). That is not
+  decoration: a `backlog escalations` verb scans every spec in the project and
+  lists the open ones. The system does not leave that recognition to inference —
+  the repo that *produces* escalations guarantees the shape the reader expects.
+- **A separate commit** — `docs(TICKET-ID): escalation E1`, never folded into the
+  code commit that went through the gate. What was not reviewed stays visible as
+  not-reviewed.
+- **The orchestrator does not arbitrate; it makes arbitration possible.** The
+  required content is what a human needs in order to decide: what the gate found
+  and what makes it true (file, line, quote), why the implementer could not fix
+  it, and the possible ways out — explicitly *not* ranked.
+
+Closing one is `escalations close <ID> --by <ID> --date …`, which inserts a
+marker — and **only that marker counts**. An escalation "closed" by editing its
+title in prose is not recognized and stays listed as open. That is a deliberate
+consequence, not an oversight: a state a machine reports must have exactly one
+writer, or the report becomes a matter of interpretation.
+
+Two details are there because the alternative was silent loss. A heading inside
+the container that does *not* start with the grammar but nonetheless contains an
+`E1`/`E3` token looks far more like a mistyped escalation than like prose — so it
+is reported on stderr, with its file and line, and never listed as an escalation.
+And the reader accepts the older pre-container shape too, because escalations
+written before the convention existed are exactly the ones nobody would think to
+go looking for.
+
+What this changes in practice: at the end of a cycle the operator gets a *list*,
+not a memory. And because an escalation names the ticket whose spec it lives in,
+the arbitration lands where the work is.
 
 ## Who does what: scripts attest, the LLM judges, sub-agents generate
 
@@ -346,10 +468,14 @@ quiet design rule. Every step is one of three kinds:
   `git status` proofs, the backlog statuses). *Attestation is always produced
   by a script, never by the entity it controls.*
 - **LLM judgment (orchestrator)** — scope arbitration, spec writing,
-  dependency confirmation, merging duplicate findings, writing the review
-  register. Things that genuinely require judgment, kept in conversation.
-- **LLM generation (sub-agents)** — the implementer and the reviewers. The
-  generative work, behind guards on both sides.
+  dependency confirmation, writing the review register, writing escalations
+  into the spec. Things that genuinely require judgment, kept in conversation.
+- **LLM generation (sub-agents)** — the implementer, the reviewers, and the
+  aggregator. The generative work, behind guards on both sides. Merging
+  duplicate findings used to sit in the bullet above, as orchestrator judgment;
+  it moved here once it got its own blind sub-agent, which is a better place
+  for it — the orchestrator now *checks* the merge (the row count) instead of
+  performing it.
 
 The design trajectory follows from incidents: **every time a mechanical step
 lived as prose instructions executed by the LLM, it eventually failed** — a
@@ -361,6 +487,76 @@ the same story in decision form: every checkpoint is **fail-closed** (ticket
 not found, maturation not on main, dirty tree, SHA mismatch → STOP), so the
 pipeline stops rather than drift into "everything works, but in the wrong
 tree".
+
+The most recent application of that rule is measurement. The review register is
+published in conversation and dies with the session, so a writer script now
+persists its durable part: one JSON file per ticket cycle, in a separate data
+repo — dosage, reviewer count, raw and unique finding counts, and each finding's
+disposition with the SHA that fixed it or the ticket that inherited it. The split
+is the same one as everywhere else. What the orchestrator *decided*, it passes as
+arguments; what can be *observed* — token counts, the run's rank in the session —
+the writer reads from the transcript, and the orchestrator is not allowed to
+declare it. Two consequences fell out of that. The command has to be run by the
+orchestrator from its own shell, because a sub-agent running it would measure
+**its own** transcript — a different quantity, silently. And a finding's fix SHA
+is recorded before integration rebases it, so the writer itself checks whether
+that SHA is still reachable from the branch, rather than trusting the number it
+was handed.
+
+One rule of the register carried over into the file, and it is the one worth
+stealing: at dosage `none`, the finding counts are **omitted, not zeroed**.
+Nobody looked, so `0 findings` would be manufactured evidence — and a row of
+zeroes is indistinguishable, later, from a review that ran and found nothing.
+
+## The skill became a program, and it has a size budget
+
+The orchestration skill is around 95 KB of markdown. At that size it is no longer
+prose with a few commands in it — it is a program, and it acquired the two things
+programs need: modules, and a budget.
+
+The modules are split by **who reads them**, which turned out to be the only
+distinction that matters:
+
+| Family | Reader | When |
+|---|---|---|
+| the skill file | the orchestrator | always |
+| `prompts/*.md` | the **sub-agents themselves** | at the start of their own run |
+| `steps/*.md` | the orchestrator | conditionally — the cross-repo branch, the aggregation body at dosage `deep` |
+
+`prompts/` is the interesting one, because it changed a guarantee rather than a
+layout. The reviewer's manual — its location assertion, its prohibitions, the
+four review axes, its output format — used to be *injected*: the skill held the
+text, and the orchestrator copied it into the spawn prompt. Now the spawn prompt
+carries only variables and a pointer, and the sub-agent resolves the path and
+reads the manual itself before doing anything else (and stops, loudly, if it
+cannot read it). The axes stopped being a transcription and became invariants of
+a file. No reviewer can be handed three axes out of four because a copy got
+tired.
+
+It also makes a hot-swap possible that the injected version could not: an edit to
+a manual takes effect on the **next** launch, including for sub-agents working in
+a completely different repository — and never on an agent already in flight.
+
+The budget is a byte ceiling per family, asserted by a test. Nothing forbids
+growth: raising a ceiling is a **one-line edit, in the commit that grew the
+file**, visible in the diff. That is the entire mechanism, and the details are
+where the intent lives:
+
+- The ceilings sit in their own dedicated test file, precisely so that raising
+  one is a one-line edit rather than surgery in the middle of a large shared
+  test file. Several tickets that write into the skill each contradict the
+  ceiling and each have to re-measure it in their own commit. That is the
+  designed behavior, not friction to be smoothed away.
+- **A ceiling is an observation, not a target.** No reduction percentage is
+  promised, and the point was never to make the skill small. The point is that
+  growing it is a deliberate, reviewable act instead of a silent one — which is
+  what a modular split alone does *not* give you: without the ceiling, the skill
+  could re-absorb every byte that had just been extracted into `prompts/`, by
+  plain copy-paste, without a single test moving.
+- The fourth ceiling is on the global `CLAUDE.md`, and it is singled out by its
+  reader too: the harness loads that file on **every** session of **every**
+  project, and injects it into the context of every sub-agent spawned. The other
+  three cost something only inside a cycle. This one costs something always.
 
 ## How a ticket flows (end to end)
 
@@ -399,9 +595,11 @@ agent      /sdd-run-ticket PARSE-07
              then STOPS (never integrates itself)
   gate       dosage read from the frontmatter: `none` → no gate, straight
              to integration · `light` → 1 reviewer · `deep` → 3 in
-             parallel. Reviewers are FRESH sub-agents: blank context —
-             ticket id, spec path, worktree, SHA and the 4 review axes,
-             nothing else (all four axes each, always; `deep` adds a
+             parallel, then 1 blind aggregator over their reports.
+             Reviewers are FRESH sub-agents at a pinned setting, never
+             the session's: blank context — ticket id, spec path,
+             worktree, SHA, and a pointer to the manual they read
+             themselves (all four axes each, always; `deep` adds a
              different priority lens per reviewer, never a subset).
              The orchestrator locates worktree+SHA programmatically,
              collects the reviewers' reports, checks git status unchanged —
@@ -409,6 +607,10 @@ agent      /sdd-run-ticket PARSE-07
              the implementer (context intact) triages E1/E2/E3 and fixes;
              the orchestrator never touches the code. It closes by
              verifying the fix commits exist and publishing the register
+  residue    any E1/E3 escalation is APPENDED to the ticket's spec in its
+             own `docs(PARSE-07): escalation` commit, tag-prefixed so the
+             CLI can list it later — arbitration outlives the session.
+             A per-cycle measurement file is written outside the repo
 agent      /send   (run by the orchestrator from the implementer's worktree)
   hook       merge → merged  (PARSE-07's feat commit is on main)
 you        "deploy"
@@ -418,7 +620,10 @@ agent      /deploy
 
 The human's three touchpoints are all decisions, never mechanics: agreeing on
 the need, choosing to mature-and-run (with the review dosage), and deciding to
-deploy. Everything between two touchpoints is the agent's.
+deploy. Everything between two touchpoints is the agent's. A cycle can leave one
+decision *behind* it — an escalation — but that one is deliberately not a
+touchpoint: it does not block the cycle, it waits in the spec until someone runs
+the verb that lists it.
 
 The implementer also has standing orders worth stealing: never touch the
 backlog artifacts (`wip`/`merged`/`shipped` come from hooks keyed on its commit
@@ -481,45 +686,174 @@ warnings so agents re-read them at the point of failure:
 - **Fixed-name probe files collide under parallelism** — the worktree-detection
   probe is suffixed with the ticket id, or parallel agents lock each other's
   worktrees.
+- **Under Git Bash on Windows, an argument starting with `/` is rewritten into a
+  Windows path before the program ever sees it** — and quoting does not help,
+  because the rewrite happens outside the quotes' reach. Setting a ticket title
+  that began with a slash stored a mangled value and exited 0. The fix is an
+  environment variable (`MSYS_NO_PATHCONV=1`), and the lesson generalized: it is
+  prescribed once as a preamble for *every* verb taking a free-form value, not
+  just for the one verb that got bitten.
+- **Rewording the generated-file sentinel froze every existing view.** The lock
+  recognized generated files by the sentinel's exact wording, so when a ticket
+  reworded it with no read compatibility, every previously generated view stopped
+  being recognized — and the lock, doing exactly its job, refused to regenerate a
+  file it did not recognize. The matcher is now **structural** (a leading HTML
+  comment of the right shape, any wording): a stale view re-stamps itself at the
+  next mutation instead of freezing, while a genuinely hand-written legacy
+  backlog — no leading comment at all — stays protected. Both halves of the
+  lock's job survive, which is the part a naive fix would have lost.
+- **A finding title is untrusted input to your own shell.** The metrics writer
+  takes each finding's short title as an argument, and those titles are copied
+  from reviewer reports, which quote code in backticks — nearly half of the real
+  ones contain at least one. Passed inside double quotes, the shell substitutes
+  the backquote and `$(…)`: the title arrives truncated, silently, exit 0, file
+  written — and a title quoting a command would have *run* that command in the
+  orchestrator's shell. Single quotes, everywhere, with one documented exception
+  for the apostrophe.
+- **A guard that did not run is not a guard that passed — nor one that failed.**
+  The integration command detects its structural tests with a file glob and runs
+  them with a name filter: two distinct mechanisms, and they can diverge. A repo
+  where the glob matches a file that the runner's own config excludes gets an
+  empty selection — the glob saw it on disk, the filter never played it. That
+  used to exit non-zero and stop the integration, reporting an incoherence that
+  nothing had actually observed. The command now has **three** outcomes instead
+  of two: green, red, and *empty selection* — which is reported in one line,
+  naming the files seen and not played, and then continues.
 
-## Open problem: the skill does not improve itself
+That last one is the same rule the review gate applies twice elsewhere, and it is
+probably the single most transferable idea in this section: **never let an
+absence of measurement render as a measurement.** At dosage `none` the finding
+counts are omitted rather than zeroed, because `0` would claim someone looked. An
+empty reviewer report accompanied by prose remarks is a contradiction to be
+resolved rather than averaged. And an escalation "closed" by editing its title in
+prose stays listed as open, because the closure marker is the only writer the
+reader recognizes. Different mechanisms, one discipline: a system that reports
+states must never be able to say something it did not observe.
+
+One of these hardened into a general rule for every sub-agent, and it is
+reproduced in all four manuals: **a tool call refused by the harness (a
+permission, a hook, a classifier) is a stop, not an obstacle.** It is carefully
+distinguished from an *error* — a wrong path, a missing argument, an unfound
+`old_string` — which should be fixed and replayed. What is refused is the
+**intended effect**, not its phrasing: so do not replay the same effect through a
+different tool, do not rephrase it to make it acceptable, do not split it into
+pieces none of which trip the refusal, and do not defer it. What remains allowed
+is to give up that specific effect and continue, or to stop entirely — and either
+way to say so plainly in the report, even if that means abandoning the required
+output format. A refusal silently worked around by dropping it stays invisible,
+which is the failure this rule exists to prevent.
+
+## The loop that feeds the skill (this section used to be the open problem)
 
 Everything in the section above got into the skill the same way: an incident
 happened, and the operator wrote the lesson back into the skill **at the point
 of failure**, so the next agent re-reads it exactly where it is about to make
-the mistake. That retrospective loop is the system's real engine — and it is
-**nowhere in the system**. It lives in the operator's habits (a scrum master's
-reflex: no incident without a retro), not in the skill.
+the mistake. That retrospective loop is the system's real engine — and an
+earlier version of this README said it was **nowhere in the system**, living
+only in the operator's habits (a scrum master's reflex: no incident without a
+retro).
 
-The structural pieces for closing the loop already exist: the skills are
-themselves tickets (`SKILL-NN`) in the harness repo, and cross-repo mode means
-an improvement to the skill can be specced, matured and delivered through the
-very pipeline it describes. What is missing is the **trigger** — nothing in
-the orchestrator's checklist says: *"if this run surprised you (a guard fired,
-a failure no warning covers, a workaround you had to invent), open a ticket
-against the skill before closing the cycle."*
+It has since been built, in the shape that section guessed at: encode the
+*trigger*, keep the human as the filter. Three pieces.
 
-This is deliberately listed as an opening, not a TODO with a known design.
-Automating retrospection has a real failure mode: rules accreting without
-pruning, until the skill is all warnings and no signal. Today the human habit
-is the filter that decides which incident deserves to become a rule. Encoding
-the *trigger* while keeping the human as the filter is probably the right
-shape — but that is exactly the kind of claim this system tests before
-trusting.
+**A capture tier.** Durable memory has four kinds of distilled fact; a fifth was
+added, `candidate` — *raw* friction, not yet a rule. One line, written at the end
+of a chunk of work: what struggled, what the user corrected, what a guard caught.
+Capture is deliberately cheap and low-threshold, because capture is not judgment;
+a candidate is explicitly ephemeral and lives until the next mining pass. Each
+one is tagged with a scope, which matters more than it looks — see below.
+
+**A miner, `/reflect`.** Its framing was itself matured in conversation, and the
+framing *is* the design. It does not look for "an improvement" — unbounded, and
+the output turns to mush. It looks for **a friction that repeats and does not yet
+have a rule**. And it is a **router**, not a brain: it dispatches what recurs to a
+home that already exists, picking a row in a table rather than inventing a
+destination:
+
+| Recurring friction about… | Home | Proposed action |
+|---|---|---|
+| **behavior** — the user keeps correcting the same thing | durable memory | promote it to a `feedback`/`project` fact |
+| **one specific skill** | a `SKILL-NN` ticket | open the ticket, or propose running `/improve-skill` |
+| **tooling** — CLI, tests, migrations | a project ticket | open it in the relevant scope |
+| **the workflow itself** | `CLAUDE.md` | propose a diff — never apply it |
+
+**A destination for skills, `/improve-skill`.** A young skill is usually wrong in
+ways only real use reveals, so this one turns a specific skill's usage friction
+into a proposed *edit* to it, via a fresh improver agent. Like the miner, it is a
+running-in tool: heavy use over a young skill's first several runs, near-zero once
+it stabilizes. Re-tuning a mature skill after every run is how you make it
+oscillate.
+
+The failure mode the old section warned about — rules accreting without pruning,
+until the skill is all warnings and no signal — is what the guards are for:
+
+- **Two occurrences or nothing.** A candidate seen once is an artifact, and
+  nothing is engraved on it; it is left to mature, or thrown away with explicit
+  approval. Engraving on `n=1` is mistaking noise for signal, and a young system
+  retuned on noise oscillates.
+- **A recurrence that an existing rule already covers is not a new rule.** It
+  means the rule exists and is not being followed — which is a *visibility*
+  problem, noted as such. Re-engraving it would be exactly the accretion this is
+  meant to prevent.
+- **The miner proposes; it never hot-patches.** It cannot edit a skill or
+  `CLAUDE.md` on its own — it proposes a ticket that then goes through the normal
+  spec → tests → code → verify cycle. What it may engrave directly, case by case
+  and only with approval, is bounded to two things: promoting a candidate into
+  durable memory, and opening a ticket. And the ticket it opens is created in
+  `maturing` **with no execution triplet** — the retro enters the very pipeline
+  this README describes, at the stage where it belongs, without pretending to
+  have matured anything.
+
+The scope tag on each candidate exists because of an arithmetic problem. A
+friction about *how to work everywhere* — a global skill, a workflow, a
+convention — recurs at most once per project, so in any single project's pool it
+would never reach two, and the miner would throw it away forever. Global
+candidates therefore accumulate in one pool at a fixed absolute path, independent
+of which project the session is in, where the threshold can actually fire.
+Correlating *several* projects' pools to catch a "project" friction that turns out
+to be global is a further step, and it stays an explicit mode rather than a
+default: it reads outside the current project, its cost grows with the number of
+projects rather than with the session's work, and its output touches other pools.
+
+Firing the miner is still a manual gesture, and that is the deliberate part.
+Automating the trigger is the tempting move and the one that would overfit a young
+system — a nudge when unmined candidates pile up is acceptable, but pulling the
+trigger stays an explicit decision.
+
+**What is still open.** Three things, honestly. The human is still the filter,
+which is by design and also means the loop's throughput is one person's attention
+— that does not scale, and is not meant to. Nothing notices on its own that the
+same friction is being logged in four different projects; the cross-project pass
+has to be asked for. And most of all: **nothing prunes a mature rule.** The size
+ceilings above make growth visible and expensive, and the miner refuses to
+duplicate a rule that already exists — but neither of them ever deletes anything.
+A rule that stopped being true stays in the file, and the only thing that removes
+it is still a person noticing.
 
 ## Comparison with existing tools
 
-Snapshot as of July 2026 (a proper research pass, not vibes — traction numbers
-verified on the repos that day):
+Star counts re-measured **2026-08-31** (a proper research pass, not vibes —
+queried on the repos that day, not recalled). Two of the six carry no number
+because they are small or new: they are here for their design, not their
+traction, and quoting a two-digit count next to a six-digit one would say
+something about popularity that this table is not about.
 
 | Tool | Overlap | Key difference |
 |---|---|---|
-| [Backlog.md](https://github.com/MrLesk/Backlog.md) (~6.3k★) | Git-native markdown tickets for agents, kanban views | One file per task in `backlog/`, separate from specs; human review checkpoints, no agent review gate; no maturation triplet, no git-flow hooks |
-| [beads](https://github.com/steveyegge/beads) (~25.5k★) | Tickets-as-data for agents, dependency graph | Inverse architecture: Dolt database is canonical, the in-repo JSONL is an export. Frontmatter-as-source-of-truth is the opposite bet |
-| [claude-task-master](https://github.com/eyaltoledano/claude-task-master) (~27.9k★) | PRD → structured tasks, complexity analysis | `tasks.json` is canonical; no markdown frontmatter, no per-ticket model/effort/review dosing |
+| [Backlog.md](https://github.com/MrLesk/Backlog.md) (~6.6k★) | Git-native markdown tickets for agents, kanban views | One file per task in `backlog/`, separate from specs; human review checkpoints, no agent review gate; no maturation triplet, no git-flow hooks |
+| [beads](https://github.com/gastownhall/beads) (~26.8k★) | Tickets-as-data for agents, dependency graph | Inverse architecture: Dolt database is canonical, the in-repo JSONL is an export. Frontmatter-as-source-of-truth is the opposite bet |
+| [claude-task-master](https://github.com/eyaltoledano/claude-task-master) (~28.0k★) | PRD → structured tasks, complexity analysis | `tasks.json` is canonical; no markdown frontmatter, no per-ticket model/effort/review dosing |
 | [knot](https://github.com/UniSoma/knot) | Markdown + YAML frontmatter tickets in `.tickets/`, agent delegation | Explicitly never touches git (`Knot never runs git add/commit/push`); minimal lifecycle; no review gate |
 | [Advance](https://github.com/Sharper-Flow/Advance) | Full SDD with gates, per-change worktrees, reviewer sub-agents | Targets OpenCode, not Claude Code; no maturation dosing, no commitment/lifecycle orthogonality |
-| [GitHub Spec Kit](https://github.com/github/spec-kit) | Spec-driven workflow phases (`/specify`, `/plan`, `/tasks`, `/implement`) | Workflow framework, not a backlog data model; no lifecycle automation from git flow |
+| [GitHub Spec Kit](https://github.com/github/spec-kit) (~132k★) | Spec-driven workflow phases (`/specify`, `/plan`, `/tasks`, `/implement`) | Workflow framework, not a backlog data model; no lifecycle automation from git flow |
+
+Two things the re-measurement turned up, worth more than the star deltas.
+**beads moved**: it now lives at `gastownhall/beads` (the old
+`steveyegge/beads` URL still redirects, and the link above points at the new
+one). And **claude-task-master has not been pushed to since April 2026** — four
+months quiet at the time of writing. Neither changes the architectural
+comparison; both change how you should read a star count as evidence of
+anything.
 
 What the existing tools do better than this system, for balance: dependency
 graphs and ready-task detection (beads), complexity analysis and task expansion
@@ -536,11 +870,21 @@ conventions). What transplants well, in increasing order of effort:
 2. **The maturation triplet** — even hand-written in frontmatter with no CLI,
    deciding model/effort/review at planning time changes how you spend agent
    budget.
-3. **The review-gate prompt patterns** — fresh-context reviewers, findings-only
-   format with mandatory concrete scenario, E1/E2/E3 triage, the register. All
-   of it is in [`skills/sdd-run-ticket.md`](skills/sdd-run-ticket.md) and
-   portable to any harness with sub-agents.
-4. **The CLI + hooks** — needs adaptation (paths, bundling, your integration
+3. **A byte ceiling on your prompt files, asserted by a test.** Almost free to
+   implement — one assertion per file family — and it forbids nothing: it just
+   turns silent prompt-bloat into a one-line edit that shows up in a diff. If
+   you are not going to adopt a backlog model at all, this is still worth taking.
+4. **The review-gate prompt patterns** — fresh-context reviewers, findings-only
+   format with mandatory concrete scenario, E1/E2/E3 triage, the register, the
+   blind aggregator at `deep`. The orchestration is in
+   [`skills/sdd-run-ticket.md`](skills/sdd-run-ticket.md), the sub-agents'
+   manuals — including the four review axes — in [`prompts/`](prompts/), and all
+   of it is portable to any harness with sub-agents.
+5. **The candidate → mine → route loop**, if you keep any kind of durable notes
+   on how you work. The cheap half is the capture tier and the `n ≥ 2` threshold;
+   the expensive half is the discipline of routing to a home that already exists
+   instead of writing a new rule.
+6. **The CLI + hooks** — needs adaptation (paths, bundling, your integration
    commands), but the core is ~3,900 lines of TypeScript with one dependency.
 
 ## License
