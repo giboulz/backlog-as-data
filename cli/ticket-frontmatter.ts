@@ -18,13 +18,55 @@ export type TicketStatus = (typeof TICKET_STATUSES)[number];
 export const TICKET_PRIORITIES = ["must", "should", "could"] as const;
 export type TicketPriority = (typeof TICKET_PRIORITIES)[number];
 
-// `fable` : Claude Fable 5 (2026-06), tier au-dessus d'opus — réservé aux
-// tickets où la correction prime sur le coût (ex. migration irréversible).
-export const EXEC_MODELS = ["fable", "opus", "sonnet", "haiku"] as const;
+// `fable` : Claude Fable 5 (2026-06), valeur acceptée depuis lors ; premier usage
+// INFRA-10 (migration irréversible), et 11 tickets de whereismycard la portent
+// encore — ⛔ ne pas la retirer d'EXEC_MODELS sans traiter leur lecture (cf. le
+// traitement de `haiku` ci-dessous). `fable` n'est classé dans AUCUNE échelle de
+// choix du modèle (~/.claude/CLAUDE.md) — le plancher haut y est `opus` — donc
+// checkTripletCoherence le refuse au-dessus de ce plancher (BLG-06 D3, arbitrage
+// 2026-08-24). Rien ici ne recommande ni n'écarte `fable` : ceci documente une
+// valeur acceptée, pas un usage.
+// haiku RETIRÉ (EFFORT-COMPAT) : plancher = sonnet. Il reste TOLÉRÉ à la lecture
+// d'un ticket historique (cf. READ_TOLERANT_MODELS) mais `mature` le refuse.
+export const EXEC_MODELS = ["fable", "opus", "sonnet"] as const;
 export type ExecModel = (typeof EXEC_MODELS)[number];
 
-export const EXEC_EFFORTS = ["none", "think", "think-hard", "ultrathink"] as const;
+/** Modèles legacy tolérés à la LECTURE seulement (un .md historique `model: haiku`
+ *  ne doit pas casser la régé). Jamais proposés à un nouveau `mature`. */
+export const LEGACY_EXEC_MODELS = ["haiku"] as const;
+
+/** Ensemble accepté par la validation en lecture : officiels + legacy tolérés. */
+const READ_TOLERANT_MODELS = [...EXEC_MODELS, ...LEGACY_EXEC_MODELS] as const;
+
+// Nomenclature d'effort OFFICIELLE (EFFORT-COMPAT). `xhigh` est un palier neuf,
+// sans antécédent legacy. La rétro-compat en lecture passe par LEGACY_EFFORT_ALIASES.
+export const EXEC_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type ExecEffort = (typeof EXEC_EFFORTS)[number];
+
+/**
+ * Table d'alias effort legacy → officiel (EFFORT-COMPAT). Un .md historique porte
+ * encore `effort: think-hard` : la validation l'ACCEPTE et le NORMALISE à la
+ * lecture, donc backlog.json ne contient QUE de l'officiel — même sans réécrire
+ * le .md (un `snapshot` ne touche jamais les fichiers ticket). `ultrathink` mappe
+ * sur `max` ; `xhigh` (officiel neuf) n'a délibérément aucun antécédent legacy.
+ */
+export const LEGACY_EFFORT_ALIASES: Record<string, ExecEffort> = {
+  none: "low",
+  think: "medium",
+  "think-hard": "high",
+  ultrathink: "max",
+};
+
+/**
+ * Normalise une valeur d'effort legacy vers l'officiel ; laisse tout le reste
+ * intact (l'enum Zod rejette ensuite les valeurs vraiment inconnues, avec le
+ * champ cité). `Object.hasOwn` évite qu'une clé héritée (`toString`…) matche.
+ */
+function normalizeEffort(v: unknown): unknown {
+  return typeof v === "string" && Object.hasOwn(LEGACY_EFFORT_ALIASES, v)
+    ? LEGACY_EFFORT_ALIASES[v]
+    : v;
+}
 
 // INFRA-30 — dosage de la gate de revue (`/sdd-run-ticket`, cf. INFRA-31),
 // décidé à la maturation comme `model`/`effort`. Optionnel : champ absent =
@@ -38,6 +80,12 @@ export type ExecReview = (typeof EXEC_REVIEWS)[number];
 // concernent que les ~130 tickets rattachés à un épic.
 export const SURFACES = ["private", "public", "infra", "data"] as const;
 export type Surface = (typeof SURFACES)[number];
+
+// INFRA-41 — nature d'un ticket : `bug` ou `feature`, first-class et queryable
+// (pas juste un style de spec). Optionnel — absent = feature (rétro-compat des 758
+// tickets existants, forward-only). Tire le jeu de sections core au `ticket brief`.
+export const TICKET_KINDS = ["bug", "feature"] as const;
+export type TicketKind = (typeof TICKET_KINDS)[number];
 
 /**
  * Statuts qui exigent un bloc `exec` (= maturés). Invariant amendé par INFRA-10
@@ -68,9 +116,12 @@ const NEST_KEYS = new Set<string>(["exec"]);
 /**
  * Clés dont le scalaire comma-séparé est splitté en `string[]` à la lecture
  * (D7 — le sous-ensemble YAML reste sans liste au niveau syntaxe : `blockedBy: A, B`
- * est un scalaire, pas une liste YAML).
+ * est un scalaire, pas une liste YAML). Exportée (BLG-03, finding #4) : `set`
+ * (`lib/backlog/set-fields.ts`) route ses clés mutables sur cette même liste au
+ * lieu de recoder un test `key === "blockedBy"` en dur — un futur ajout à
+ * `LIST_KEYS` rejoint automatiquement la bonne grammaire aux deux endroits.
  */
-const LIST_KEYS = new Set<string>(["blockedBy"]);
+export const LIST_KEYS = new Set<string>(["blockedBy"]);
 
 /** Bijection clé ASCII → label FR affiché (CLI typable, affichage français). */
 export const STATUS_LABELS: Record<TicketStatus, string> = {
@@ -205,9 +256,59 @@ export function extractScopedTicketIds(subjects: string[]): string[] {
   return [...ids];
 }
 
+/**
+ * BLG-06 — Plancher de modèle par effort (§ « Choix du modèle à la maturation »,
+ * CLAUDE.md global) : `high|xhigh|max` exigent au moins `opus`. `low|medium`
+ * n'ont pas de plancher (`null`) — sonnet est le défaut, rien n'est contrôlé ;
+ * c'est un plancher, pas un appariement bijectif (D1 : la réciproque, `opus` sur
+ * un effort bas, n'est JAMAIS contrôlée). Couvre EXACTEMENT `EXEC_EFFORTS` (test
+ * de cohérence dédié) : un palier ajouté un jour sans entrée ici fait rougir ce
+ * test plutôt que de passer silencieusement.
+ */
+export const EXEC_EFFORT_MODEL_FLOOR: Record<ExecEffort, ExecModel | null> = {
+  low: null,
+  medium: null,
+  high: "opus",
+  xhigh: "opus",
+  max: "opus",
+};
+
+/** Issue d'un contrôle de cohérence model/effort échoué (BLG-06). */
+export interface CoherenceViolation {
+  /** Modèle plancher requis par l'effort. */
+  floor: ExecModel;
+  /** `below-floor` = le modèle est classé mais sous le plancher (`sonnet`) ;
+   *  `unclassified` = le modèle n'est pas classé dans l'échelle (D3, ex. `fable`). */
+  reason: "below-floor" | "unclassified";
+}
+
+/**
+ * Contrôle la cohérence du triplet (BLG-06 D1-D3). `effort` DOIT être la valeur
+ * NORMALISÉE (jamais la chaîne brute legacy — appelle ceci après normalisation/
+ * validateTicket, sinon un `--effort think-hard` legacy contournerait le
+ * contrôle). `null` = cohérent (ou effort sans plancher, D1). `sonnet` en dessous
+ * du plancher → `below-floor` ; tout modèle hors `{opus, sonnet}` (ex. `fable`,
+ * jamais classé dans l'échelle) → `unclassified` — D3 : ne JAMAIS le présumer
+ * au-dessus du plancher.
+ */
+export function checkTripletCoherence(
+  model: string,
+  effort: ExecEffort,
+): CoherenceViolation | null {
+  const floor = EXEC_EFFORT_MODEL_FLOOR[effort];
+  if (!floor) return null;
+  if (model === floor) return null;
+  return { floor, reason: model === "sonnet" ? "below-floor" : "unclassified" };
+}
+
 const execSchema = z.object({
-  model: z.enum(EXEC_MODELS),
-  effort: z.enum(EXEC_EFFORTS),
+  // Lecture tolérante (EFFORT-COMPAT) : officiels + legacy `haiku`. Le refus de
+  // haiku à un NOUVEAU `mature` vit dans le CLI (cmdMature), pas dans le schéma —
+  // un ticket historique `model: haiku` doit rester lisible.
+  model: z.enum(READ_TOLERANT_MODELS),
+  // Normalise legacy→officiel AVANT l'enum : `think-hard` devient `high`, une
+  // valeur inconnue échoue en citant `exec.effort`.
+  effort: z.preprocess(normalizeEffort, z.enum(EXEC_EFFORTS)),
   review: z.enum(EXEC_REVIEWS).optional(),
   matured: z.string().regex(DATE_RE, "date attendue au format YYYY-MM-DD"),
 });
@@ -230,6 +331,8 @@ const baseSchema = z.object({
   type: z.literal("ticket"),
   status: z.enum(TICKET_STATUSES),
   priority: z.enum(TICKET_PRIORITIES).optional(),
+  // INFRA-41 — bug|feature, optionnel (absent = feature). Calqué sur `surface`.
+  kind: z.enum(TICKET_KINDS).optional(),
   epic: z.string().min(1).optional(),
   // INFRA-12 — annotations de pilotage (ex-RoadmapTicketRef). `blockedBy` est un
   // tableau d'ids (issu d'un scalaire comma-séparé, cf. LIST_KEYS) ; `note` reste
@@ -305,6 +408,30 @@ export function stripQuotes(v: string): string {
 }
 
 /**
+ * Cœur PARTAGÉ du parsing « scalaire comma-séparé → ids trimmés » pour les
+ * clés de `LIST_KEYS` (BLG-03, finding #4 : une seule grammaire, consommée ET
+ * par ce parseur (ligne de frontmatter complète) ET par `applyFieldAssignment`
+ * (`set-fields.ts`, valeur brute passée après le `=` sur la ligne de
+ * commande) — jusqu'ici recodée à l'identique aux deux endroits, avec un
+ * dérapage : le CLI n'appliquait pas `stripQuotes`, donc refusait
+ * `blockedBy="SKILL-31"` que ce parseur, lui, acceptait déjà.
+ *
+ * `raw` peut porter des guillemets ou des espaces de bord (jamais garanti par
+ * l'appelant) : `stripQuotes` puis `trim` s'appliquent ici, pas chez
+ * l'appelant. `trimmed` est renvoyé pour que l'appelant distingue « vide »
+ * (clé à omettre) de « malformé » (aucun id après split) sans redupliquer le
+ * strip.
+ */
+export function parseListValue(raw: string): { items: string[]; trimmed: string } {
+  const trimmed = stripQuotes(raw.trim());
+  const items = trimmed
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return { items, trimmed };
+}
+
+/**
  * Parse le sous-ensemble YAML utilisé par le frontmatter ticket : clés scalaires
  * de niveau 0 + un seul niveau d'imbrication (le bloc `exec:`). Aucune liste,
  * aucun multi-ligne — le texte libre est le corps, jamais le frontmatter.
@@ -327,11 +454,12 @@ function parseYamlSubset(fmRaw: string): Record<string, unknown> {
         // Scalaire comma-séparé → string[]. `blockedBy:` vide = pas de blocage
         // (clé omise). Mais `blockedBy: ,` (valeur non-vide ne donnant aucun id)
         // = un-gating accidentel d'un hand-edit → on refuse plutôt que collapser
-        // silencieusement en [].
-        const items = val.split(",").map((s) => s.trim()).filter(Boolean);
+        // silencieusement en []. Grammaire partagée avec `set` (`parseListValue`,
+        // BLG-03 finding #4) — un seul endroit qui sait lire ce scalaire.
+        const { items, trimmed } = parseListValue(val);
         if (items.length > 0) {
           data[key] = items;
-        } else if (val !== "") {
+        } else if (trimmed !== "") {
           throw new Error(`frontmatter: ${key} mal formé (aucun id valide) → « ${line} »`);
         }
         nestKey = null;
@@ -398,6 +526,7 @@ export function serializeTicketFile(
     `status: ${fm.status}`,
   ];
   if (fm.priority) lines.push(`priority: ${fm.priority}`);
+  if (fm.kind) lines.push(`kind: ${fm.kind}`);
   if (fm.epic) lines.push(`epic: ${fm.epic}`);
   if (fm.surface) lines.push(`surface: ${fm.surface}`);
   if (fm.blockedBy && fm.blockedBy.length > 0) {

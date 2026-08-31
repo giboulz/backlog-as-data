@@ -11,6 +11,9 @@ backlog is git data — not a document.**
 > prompts are published verbatim from the working system (skills translated to
 > English, code comments still in French — the design rationale they carry is
 > covered below).
+>
+> **Snapshot taken 2026-08-31.** The system it is extracted from keeps moving;
+> this repo is refreshed by hand, in batches, not on every commit.
 
 ---
 
@@ -640,9 +643,15 @@ commit).
 | [`skills/send.md`](skills/send.md) | Integration skill: coherence guards → rebase → fast-forward → `hook merge` (+ `hook ship` on no-deploy projects) | English translation |
 | [`skills/deploy.md`](skills/deploy.md) | Deploy skill: typecheck → migrations check → tests → E2E → `hook ship` → push | English translation |
 | [`skills/backlog.md`](skills/backlog.md) | Conversational wrapper mapping intents to CLI verbs | English translation |
-| [`cli/`](cli/) | The CLI source (TypeScript): frontmatter schema+parser, snapshot projection, markdown renderer, lifecycle hook core, command dispatch | Verbatim (French comments) |
+| [`prompts/`](prompts/) | The **sub-agents'** manuals, which they read themselves: implementer (same-repo and cross-repo), reviewer, aggregator | English translation |
+| [`steps/`](steps/) | Sections of the orchestration skill read **conditionally** by the orchestrator: the cross-repo branch, the `deep` aggregation body | English translation |
+| [`cli/`](cli/) | The CLI source (TypeScript): frontmatter schema+parser, snapshot projection, markdown renderer, lifecycle hook core, escalation reader, command dispatch | Verbatim (French comments) |
 | [`tools/preflight.mjs`](tools/preflight.mjs) | Deterministic preflight resolver used by `/sdd-run-ticket` (ticket lookup, mode, worktree derivation, guards) | Verbatim |
 | [`examples/`](examples/) | A sample ticket file and generated projections | Synthetic |
+
+The split between `prompts/` and `steps/` is the one described in
+[The skill became a program](#the-skill-became-a-program-and-it-has-a-size-budget):
+they are separated by **who reads them**, not by topic.
 
 The skills are Claude Code slash commands (`~/.claude/commands/*.md`); the CLI
 is bundled (esbuild) into a single `backlog.mjs` installed under

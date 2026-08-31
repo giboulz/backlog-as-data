@@ -47,8 +47,8 @@ TOOL="$(node -e "console.log(require('path').join(require('os').homedir(),'.clau
 
 | Intent | Command |
 |---|---|
-| Create a ticket | `node "$TOOL" new <ID> [--epic <e>] [--priority <must\|should\|could>]` |
-| Mature (→ `todo`) | `node "$TOOL" mature <ID> --model <fable\|opus\|sonnet\|haiku> --effort <none\|think\|think-hard\|ultrathink> --review <none\|light\|deep> --date <YYYY-MM-DD>` |
+| Create a ticket | `node "$TOOL" new <ID> [--title <t>] [--epic <e>] [--priority <must\|should\|could>]` |
+| Mature (→ `todo`) | `node "$TOOL" mature <ID> --model <fable\|opus\|sonnet> --effort <low\|medium\|high\|xhigh\|max> --review <none\|light\|deep> --date <YYYY-MM-DD>` |
 | Park | `node "$TOOL" set <ID> status=parked` |
 | Abandon | `node "$TOOL" set <ID> status=wont` |
 | Change status | `node "$TOOL" set <ID> status=<status>` |
@@ -62,6 +62,14 @@ Valid statuses: `parked maturing todo wip merged shipped wont`.
 
 - **The date is never invented by the CLI.** For `mature`, explicitly pass
   today's date (you know it from your context) as `--date YYYY-MM-DD`.
+- **A value starting with `/` — prefix `MSYS_NO_PATHCONV=1`.** Under Git Bash /
+  MSYS2 (Windows), an argument that starts with a slash is converted into a
+  Windows path *before* it reaches the CLI: `--title "/reflect global mode"`
+  arrives as `C:/Program Files/Git/reflect global mode`. Silent success, exit 0,
+  wrong title. Write:
+  `MSYS_NO_PATHCONV=1 node "$TOOL" new SKILL-NN --title "/reflect global mode"`.
+  Same family as the dash rule (`--flag=value`), but this one produces no error
+  at all — which is exactly why it has to be written down.
 - **`--review` is required at maturation**, on the same footing as `--model`
   and `--effort`: maturing means deciding the **triplet**
   model/effort/review. It sets the dosage of `/sdd-run-ticket`'s review gate —
@@ -77,6 +85,12 @@ Valid statuses: `parked maturing todo wip merged shipped wont`.
   that will blow up at the next use does not.
   These do **not** justify `deep`: the ticket's size, the spec's length, the
   number of files touched.
+- **Choosing the model (`--model`).** There is a written scale in the global
+  `CLAUDE.md`, section "Choosing the model at maturation" (a three-case table) —
+  same principles as the review dosage: you read the signals, you propose, the
+  user overrides. The `effort ⇒ model` coherence is held by the tool itself
+  (`mature` refuses a violation, `--override-coherence` is the gesture that
+  overrides it).
 - **Rejected: the idea of a mandatory `--review-why`.** Do not re-propose it.
   Asking a model to justify its choice produces **post-hoc rationalization**,
   not deliberation. Empirical evidence: on a real ticket, the maturing agent
@@ -117,10 +131,10 @@ must reach main/prod.
 [skill]  node "$TOOL" new RISK-04 --epic cockpit --priority should
          ✓ created specs/risk-04.md (maturing)
 
-[user]   /backlog mature RISK-04 as opus think-hard
+[user]   /backlog mature RISK-04 as opus high
 [skill]  What review dosage? none / light / deep
 [user]   light
-[skill]  node "$TOOL" mature RISK-04 --model opus --effort think-hard --review light --date 2026-06-09
+[skill]  node "$TOOL" mature RISK-04 --model opus --effort high --review light --date 2026-06-09
          ✓ matured RISK-04 → todo
 
 [user]   /backlog park RISK-04

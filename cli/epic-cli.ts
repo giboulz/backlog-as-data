@@ -23,6 +23,7 @@ import {
   type CliResult,
   type FlagSpec,
 } from "./cli";
+import { hasHeading, scaffoldSections } from "./brief-sections";
 
 // INFRA-12 — Cœur testable des sous-commandes `npm run backlog -- epic <…>` et de
 // la génération de epics.json. Effets fs bornés sous `root`. La dérivation
@@ -123,8 +124,61 @@ const EPIC_NEW_FLAGS: FlagSpec = {
   objective: "value",
   residue: "value",
 };
-/** `epic set` / `start` / `abandon` : positionnels uniquement (cf. INFRA-33). */
+/** `epic set` / `start` / `abandon` / `brief` : positionnels uniquement (cf. INFRA-33). */
 const EPIC_NO_FLAGS: FlagSpec = {};
+
+// INFRA-39 — Sections du brief d'épic. Source UNIQUE de la structure : le CLI
+// scaffolde les `core` (garantie déterministe), le test de cohérence (INFRA-40)
+// et le skill /mature-epic (SKILL-16) lisent la même constante. Les `optional`
+// sont un menu situationnel — jamais auto-posées, tirées à la main par le skill.
+export const EPIC_BRIEF_SECTIONS = {
+  core: [
+    { heading: "Problème / besoin fixé", placeholder: "_(à remplir)_" },
+    { heading: "Alternatives écartées", placeholder: "_(à remplir)_" },
+    { heading: "Contraintes & risques archi", placeholder: "_(à remplir)_" },
+    { heading: "Décisions transverses", placeholder: "_(à remplir)_" },
+    { heading: "Hors-scope", placeholder: "_(à remplir)_" },
+    { heading: "Découpage", placeholder: "_(à remplir)_" },
+    { heading: "Fini quand", placeholder: "_(à remplir)_" },
+    { heading: "Challenge", placeholder: "_(à remplir)_" },
+  ],
+  optional: [
+    { heading: "Gate / signal de promotion" },
+    { heading: "Reste à trancher au niveau ticket" },
+    { heading: "Historique à ne pas répéter" },
+    { heading: "Rattachements" },
+  ],
+} as const;
+
+/**
+ * INFRA-39 — Ajoute au corps les seules sections *core* d'épic absentes, en ordre
+ * canonique, sans rien toucher d'autre. Pure, idempotente. INFRA-41 : n'est plus
+ * qu'un branchement sur `scaffoldSections` (helper partagé avec `ticket brief`),
+ * spécialisé aux sections d'épic — une seule impl testée.
+ */
+export function scaffoldBriefSections(body: string): string {
+  return scaffoldSections(body, EPIC_BRIEF_SECTIONS.core);
+}
+
+/**
+ * INFRA-40 — `heading`s des sections core absents du corps, en ordre canonique
+ * (celui de `EPIC_BRIEF_SECTIONS.core`). Pure, exportée. `[]` = brief complet.
+ * Réutilise le matching `hasHeading` d'INFRA-39 (donc robuste au CRLF).
+ */
+export function missingCoreSections(body: string): string[] {
+  return EPIC_BRIEF_SECTIONS.core
+    .filter((s) => !hasHeading(body, s.heading))
+    .map((s) => s.heading);
+}
+
+/**
+ * INFRA-40 — Marqueur « brief-managé », forward-only : présence du titre
+ * `## Challenge`, la section core la plus distinctive (aucun épic legacy ne la
+ * porte). Isole le marqueur en un point unique testable et documenté.
+ */
+export function isBriefManaged(body: string): boolean {
+  return hasHeading(body, "Challenge");
+}
 
 async function cmdEpicNew(
   args: string[],
@@ -258,6 +312,29 @@ async function cmdEpicFlag(
   return ok(`${id} → ${verb}`);
 }
 
+async function cmdEpicBrief(
+  args: string[],
+  root: string,
+  epicsDir: string,
+): Promise<CliResult> {
+  const parsed = parseFlags(args, EPIC_NO_FLAGS);
+  if (!parsed.ok) return err(parsed.error);
+  const { positionals } = parsed.value;
+  const id = positionals[0];
+  if (!id) return err("usage: epic brief <id>");
+  const { epics } = await discoverEpics(epicsDir);
+  const found = findEpic(epics, id);
+  if (!found.ok) return err(found.message);
+  const nextBody = scaffoldBriefSections(found.target.body);
+  await fs.writeFile(
+    found.target.filePath,
+    serializeEpicFile(found.target.frontmatter, nextBody),
+    "utf8",
+  );
+  await regenSnapshot(root, epicsDir);
+  return ok(`${id} → brief scaffoldé (${EPIC_BRIEF_SECTIONS.core.length} sections core)`);
+}
+
 export async function runEpicCommand(
   argv: string[],
   opts: { root: string },
@@ -280,6 +357,8 @@ export async function runEpicCommand(
         (fm) => ({ ...fm, abandoned: true, started: false }),
         "abandon",
       );
+    case "brief":
+      return cmdEpicBrief(rest, root, epicsDir);
     case "epic-snapshot": {
       await regenSnapshot(root, epicsDir);
       return ok("epics.json régénéré");
@@ -288,7 +367,7 @@ export async function runEpicCommand(
       return {
         code: 2,
         stdout: "",
-        stderr: `sous-commande épic inconnue : « ${sub ?? "(aucune)"} » — attendu new|set|start|abandon|epic-snapshot`,
+        stderr: `sous-commande épic inconnue : « ${sub ?? "(aucune)"} » — attendu new|set|start|abandon|brief|epic-snapshot`,
       };
   }
 }

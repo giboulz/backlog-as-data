@@ -36,13 +36,17 @@ Step 3.5 blocks this case.
 **Repo prerequisite (critical)**: the ticket does not necessarily belong to the
 **session's** repo. The ownership rule (`specs/skill-01.md`) says a ticket opens
 where its deliverable lives — so a ticket whose deliverable is a global skill
-lives in `claude-config`, even when launched from a session opened elsewhere. In
-that case `isolation: "worktree"` is **unusable**: it forks the session's repo,
-not the ticket's. The skill then switches to **cross-repo mode** (Step 1.2):
-worktree mounted by hand on the target repo, agent spawned **without**
-`isolation`. Everything else in the skill — guards, hooks, review, `/send` —
-must then target the **target repo**, never the session's. This is the central
-failure mode: everything works, but in the wrong tree.
+lives in `claude-config`, even when launched from a session opened elsewhere.
+That does **not** mechanically switch to cross-repo mode: what decides is the
+shared git repository (`git dir`) of the target root and the session root
+(Step 1.2), not the ticket's location alone — a session already working inside a
+`claude-config` worktree stays `same-repo`. When it genuinely is `cross-repo`,
+`isolation: "worktree"` is **unusable**: it forks the session's repo, not the
+ticket's. The skill then switches to **cross-repo mode** (Step 1.2): worktree
+mounted by hand on the target repo, agent spawned **without** `isolation`.
+Everything else in the skill — guards, hooks, review, `/send` — must then target
+the **target repo**, never the session's. This is the central failure mode:
+everything works, but in the wrong tree.
 
 **Portability**: this skill is **generic**. It knows neither the stack nor the
 guardrails of any given project — the project's `CLAUDE.md` is authoritative,
@@ -51,7 +55,7 @@ project-specific fact here (stack, ORM, host, particular files).
 
 **Specs**: this file is an artifact of `claude-config` — any modification goes
 through a `SKILL-NN` ticket in its `specs/`  (ownership rule:
-`specs/skill-01.md`). The design of the **review gate** (reviewer template
+`specs/skill-01.md`). The design of the **review gate** (the reviewer manual's
 content, E1/E2/E3 escapes, dosage) is traced in `specs/infra-31.md` **of the
 main project's repo** — predating that rule, cf. SKILL-01 § "What is NOT done".
 The **caller inversion** (the orchestrator spawns the reviewers, not the
@@ -113,9 +117,7 @@ All the **deterministic mechanics** — finding the file whose frontmatter carri
 status and its `exec:` block, deciding the mode, deriving the worktree, checking
 the guards — is done by a **standalone tool**, `tools/sdd/preflight.mjs`
 (property of `claude-config`). The skill calls it **once** and reads the JSON
-fields; it recomputes nothing by hand. The tilde trap, the double backslashes
-swallowed by git-bash and the positional `awk` disappeared **along with** the
-prose that carried them — in code, they no longer exist.
+fields; it recomputes nothing by hand.
 
 ```bash
 PREFLIGHT="$(node -e "console.log(require('path').join(require('os').homedir(),'.claude','tools','sdd','preflight.mjs'))")"
@@ -156,41 +158,34 @@ every `git` command in later steps targets it, never the session's repo.
 
 ## Step 1.1 — Cross-repo resolution: the tool already scans the harness repo
 
-The ticket does not necessarily belong to the session's repo: a deliverable
-that is a global skill lives in `claude-config` (= `$HOME/.claude`), even when
-launched from elsewhere. **The Step 1 tool knows this.** Without `--repo`, it
-scans **two roots** by default: the session's root, then `$HOME/.claude`, the
-root of the `claude-config` repo, **derived from the machine** (never declared,
-nothing to keep up to date, nothing to go stale). It is **the only** known
-alternative root — no repo registry.
+Two outcomes, read from the Step 1 result:
 
-- Ticket found in `$HOME/.claude` → the JSON's `targetRoot` points there and
-  `mode` is `cross-repo`: the skill switches automatically (Step 1.2). You do
-  **not** have to re-ask for `--repo` — but the Step 5 recap displays the target
-  repo in plain sight and expects an explicit confirmation, so no repo switch
-  ever happens silently.
-- Ticket nowhere → the tool exits non-zero with a message naming **the two
-  roots actually scanned** (session · `$HOME/.claude`) and recalling the
-  `--repo` flag for a hypothetical **third** repo. Relay that message and stop.
-
-⚠️ `--repo <path>` remains a cheap **escape hatch** for that rare case, not a
-contract of N-repo generality: the entire class of tickets that motivated this
-mode (deliverable = global skill) **always** points at `$HOME/.claude`, which
-the tool can compute. When provided, `--repo` disables any other search (the
-tool scans only that root) and an absence there is **final** (no harness
-fallback).
+- Ticket found in `$HOME/.claude` → the JSON's `targetRoot` points there. The
+  `mode` does **not** follow mechanically: `same-repo` and `cross-repo` are both
+  possible, and it is the `mode` field of Step 1.2 that decides, on the shared
+  git repository (`git dir`) of `targetRoot` and `sessionRoot` — a session
+  already working inside a `claude-config` worktree gets `same-repo` despite
+  different path roots; a session in another repository gets `cross-repo`, as
+  before. You do **not** have to re-ask for `--repo` — but the Step 5 recap
+  displays the target repo in plain sight and expects an explicit confirmation,
+  so no repo switch ever happens silently.
+- Ticket nowhere → the tool exits non-zero with a message naming the roots
+  actually scanned. **Relay that message and stop.**
 
 ---
 
 ## Step 1.2 — Decide the mode: read from the `mode` field
 
 The mode is **no longer computed in prose**: it is the `mode` field of the
-Step 1 JSON (`same-repo` \| `cross-repo`), already decided by the tool — root
-comparison, Windows normalization (separators, drive-letter case) included.
+Step 1 JSON (`same-repo` \| `cross-repo`), already decided by the tool —
+comparison of the shared git repository (`git dir`) of `targetRoot` and
+`sessionRoot`, Windows normalization (separators, drive-letter case) included.
+Two different **path** roots can share the same `git dir` (a worktree and the
+main checkout of the same repo): those yield `same-repo`.
 
 | `mode` | Consequences |
 |---|---|
-| `same-repo` (nominal) | the skill behaves as before SKILL-09: `isolation: "worktree"`, worktree probe, Steps 4.5 and 5.7 skipped, Step 6 copies Template A directly |
+| `same-repo` (nominal) | the skill behaves as before SKILL-09: `isolation: "worktree"`, worktree probe, Steps 4.5 and 5.7 skipped, Step 6 sends the "same repo" call prompt directly |
 | `cross-repo` | worktree mounted by you (Step 5.7), agent spawned **without** `isolation`, and **every** `git` command in the skill prefixed `git -C "<target_root>"` or `git -C "<worktree_path>"` |
 
 **This is where the deferred verdict of Step 0 lands**: in `same-repo` mode, a
@@ -198,8 +193,10 @@ current branch of `main` **stops now**, with the Step 0 message. In cross-repo,
 it is ignored.
 
 Note: the `git -C "<target_root>"` blocks in later steps are written to hold
-**in both modes** — in "same repo" mode, `<target_root>` is the session's root,
-so the `-C` is a no-op. There is nothing to remove.
+**in both modes** — including "same repo" mode: `<target_root>` is **not**
+guaranteed equal to the session's root (a worktree and the main checkout of the
+same repo share a `git dir` without sharing a path), so the `-C` is **never** a
+no-op. It stays **mandatory in both modes**; there is nothing to remove.
 
 ⚠️ In cross-repo, the rule is mechanical: **a `git` command targets its repo
 explicitly**, never by accident. A bare `git` command inherits your shell's
@@ -212,12 +209,15 @@ Two ways to target explicitly, and **only one of the two per step**:
 
 | Way | Where | What makes it safe |
 |---|---|---|
-| `git -C "<target_root>"` / `git -C "<worktree_path>"` | Steps 1 to 6.6 | the repo is named in the command, your `cd` has no influence |
-| `cd "<worktree_path>"` then bare `git` | Step 6.7 **only** | `/send` takes no repo argument: it reads the current directory. The `cd` **is** the targeting, and Step 6.7 verifies it with a `git rev-parse --show-toplevel` before invoking anything |
+| `git -C "<target_root>"` / `git -C "<worktree_path>"` | Steps 1 to 6.6.5 | the repo is named in the command, your `cd` has no influence |
+| `cd "<worktree_path>" && git …` | Step 6.7 **only** — including the commands `/send` prescribes and that 6.7 executes on its behalf | `/send` takes no repo argument: it reads the current directory at call time, both its own and that of every command it prescribes. The `cd` **of the command itself** is the targeting — never an earlier `cd`, not even a previous command's — and that holds command by command, not just at the step's entry: there is no single check that would cover the following ones |
 
-⛔ Do not "fix" the bare `git` commands of Step 6.7 by adding `-C` to them: they
-are correct **by construction** (they constate the directory `/send` will run
-in). Adding `-C` there would mask precisely what they verify.
+⛔ Do not "fix" the `cd "<worktree_path>" && git …` commands of Step 6.7 (nor
+those, derived from `send.md`, that 6.7 executes on its behalf) by replacing
+their `cd &&` with a `-C`: the two forms are behaviorally equivalent here, but
+`cd &&` is the only convention 6.7 uses — a `-C` would mix two styles in the same
+step for no gain in safety, and would break the visual signature (audits, shape
+tests) that distinguishes 6.7's commands from the rest of the skill.
 
 ---
 
@@ -241,9 +241,15 @@ From the frontmatter (Step 1):
 
 - `model` ∈ {`fable`, `opus`, `sonnet`, `haiku`} — otherwise **stop** with a
   message about the unrecognized model.
-- `effort` ∈ {`none`, `think`, `think-hard`, `ultrathink`} — informative (the
-  `Agent` tool takes no effort parameter): it is **injected into the prompt** as
-  a reasoning-depth instruction.
+- `effort` ∈ {`low`, `medium`, `high`, `xhigh`, `max`} — drives the implementer
+  sub-agent's **actual reasoning tier**. The `Agent` tool still takes no effort
+  parameter; the only mechanical lever is the `effort:` field of a dedicated
+  **agent definition**, which Step 6 selects from this value. Injecting the
+  effort **into the prompt** survives as a harmless complement, but it is no
+  longer the load-bearing mechanism. A value outside the enum → **stop**: the
+  frontmatter was hand-edited, since the backlog tool's `mature` verb normalizes
+  what it is given and only ever writes these five values. Way out: have it
+  re-matured by the tool, not the file touched up.
 - `review` ∈ {`none`, `light`, `deep`} — dosage of the **review gate**
   (Steps 6.2 to 6.6, which **you** run). **Absent field → `light`**: the
   default lives in the consumer, not in the data (the maturation stays valid
@@ -273,7 +279,8 @@ test -f "<target_root>/<spec_path>"
 
 ⚠️ `<spec_path>` is **relative to `<target_root>`** (Step 1). Testing it
 relative to your current directory would test a file of the session's repo —
-which, in cross-repo, does not exist, or worse: exists and is not the right one.
+which is **not guaranteed to be `<target_root>`, even in `same-repo`**
+(Step 1.2): it does not exist, or worse, exists and is not the right one.
 
 Note: the ticket file **is** the spec. On some projects it contains the whole
 design; on others it points to a domain spec (e.g. `See [parse.md](parse.md)`).
@@ -296,12 +303,6 @@ what is committed on `main`. The Step 1 tool has already verified, on the
     The sub-agent's worktree forks from main → it would not see the ticket.
     → Commit the maturation (specs/ + backlog.json), run /send, then relaunch this skill.
   ```
-
-⚠️ The `-C targetRoot` **inside the tool** is not decorative (D3, SKILL-09): it
-is the `main` of the repo **that owns the ticket** that must contain the spec,
-since that is what the worktree will be forked from. Compared against the
-session's `main`, this guard would always fail in cross-repo (spec absent) and
-block a legitimate launch — or, worse, pass green on a same-path homonym.
 
 Note: this guard compares against `main`, not the current working tree. That is
 **deliberate** — Step 1 finds the ticket locally, but it is the state of `main`
@@ -351,34 +352,20 @@ silence would be the error, not the asking.
 
 ## Step 4.5 — Target worktree path: read from the JSON (CROSS-REPO only)
 
-⛔ **`same-repo` mode: skip this step** — the harness assigns the worktree, and
-the JSON's `worktreePath`/`branch` are `null`.
+**Pointer — conditional read.** ⛔ **`same-repo` mode: skip this step** (the
+harness assigns the worktree, and the JSON's `worktreePath`/`branch` are `null`).
+**In `cross-repo` mode**, the body of this step — and that of Step 5.7, and the
+cross-repo variant example — lives in `steps/cross-repo.md`. Resolve its path,
+then read it IN FULL with the `Read` tool:
 
-This step **creates** nothing: it **reads** a path already derived and checked
-by the Step 1 tool, so that the Step 5 recap can display it **before** any side
-effect. Creation comes later (Step 5.7).
+```bash
+node -e "console.log(require('path').join(require('os').homedir(),'.claude','steps','cross-repo.md'))"
+```
 
-The path is **derived**, not configured (decision D2, SKILL-09). The tool
-places the worktree **OUTSIDE** the target repo's tree, without exception: a
-worktree nested under the target would be scanned, backed up and cleaned by
-tools that have no business there — and, when the target is `claude-config`,
-purely and simply **loaded by the harness** (a second set of skills and
-settings live at once). The worktree root is the one the target repo **already**
-uses (read from its own out-of-tree worktrees); failing that, the
-`$HOME/claude-config-wt/` convention. The suffix is the lowercased ID.
-
-**Substitutions resolved at this step**: `<worktree_path>` — the JSON's
-`worktreePath` field (absolute path), used as-is until the end of the cycle;
-`<target_branch>` — the JSON's `branch` field (`claude/` + lowercased ID).
-
-**Assertions read from the guards** — the derived path is not taken on faith:
-
-- `guards.worktreeUnderTarget` is `true` → **REFUSE**: the derivation falls
-  under the target repo. **Stop** and report, before even the recap.
-- `guards.worktreePathFree` is `false` → **REFUSE**: the path is already
-  occupied — probably the worktree of a neighboring session on the same ticket
-  (Step 1.5 should have seen it as `wip`). **Stop**; do not "find" another path
-  yourself.
+⛔ If you cannot read that file, **STOP and report it** — do not guess what it
+contains, and do not skip the step silently. ⛔ **Execute nothing of Step 5.7
+now**: you read it here, you only play it in its turn, after the Step 5
+confirmation.
 
 ---
 
@@ -489,44 +476,47 @@ consequences, to hold together:
 
 ## Step 5.7 — Mount the target worktree (CROSS-REPO mode only)
 
-⛔ **In "same repo" mode, skip this step entirely**: `isolation: "worktree"`
-does the job, and mounting a duplicate worktree would only end up abandoning
-one.
-
-Procedure — the one applied by hand six times on 2026-07-21, without incident.
-The path itself was already derived and checked at Step 4.5: only the
-**creation** remains here.
-
-Creation, then **branch assertion**:
+**Pointer — conditional read.** ⛔ **In "same repo" mode, skip this step
+entirely**: `isolation: "worktree"` does the job. **In `cross-repo` mode**, the
+body of this step is in `steps/cross-repo.md` — **the same file as at Step 4.5**:
+if you already read it there, you have it in front of you, do not re-read it.
+Otherwise, resolve its path and read it IN FULL with the `Read` tool:
 
 ```bash
-git -C "<target_root>" worktree add "<worktree_path>" -b "<target_branch>" main
-git -C "<worktree_path>" rev-parse --abbrev-ref HEAD
-git -C "<worktree_path>" log --oneline -1
+node -e "console.log(require('path').join(require('os').homedir(),'.claude','steps','cross-repo.md'))"
 ```
 
-- The final `main` of `worktree add` is **mandatory**: without it, the worktree
-  forks from the target checkout's current `HEAD`, which can be anything. It is
-  also what fulfills point 2 of the procedure (synchronization on `main`) — a
-  worktree created from `main` **is** up to date, there is nothing to rebase
-  afterwards.
-- The displayed branch must be `<target_branch>`, never `main`: otherwise
-  **stop**, and remove the worktree
-  (`git -C "<target_root>" worktree remove "<worktree_path>"`) before yielding.
-- The "path free" check of Step 4.5 predates the user's confirmation: a
-  neighboring session may have taken the path in between. No need to redo it —
-  `worktree add` fails by itself on an occupied path. **Do not force** that
-  refusal and do not derive a fallback path: stop and report.
+⛔ If you cannot read that file, **STOP and report it** — do not guess what it
+contains, and do not skip the step silently.
 
 ---
 
 ## Step 6 — Phase 1: spawn the implementer
 
+**Resolve the `subagent_type` — `exec.effort` → agent-def.** The `effort` is no
+longer decorative: it picks the **agent definition** that carries the sub-agent's
+real reasoning tier. The five agent-defs are named after their tier, hence an
+identity, with no intermediate table:
+
+> `subagent_type` = `sdd-impl-<effort>`
+
+That is the `<subagent_type>` of the two blocks below. An `effort` outside Step
+2's enum → **stop**, as at Step 2: it would produce a `subagent_type` that does
+not exist.
+
+⚠️ **`model` remains a PER-CALL override**, alongside the `subagent_type`: the
+official documentation guarantees that the per-call `model` override "takes
+precedence over the definition's model" — only the agent-def's `model` is
+replaced, its `effort` **survives**. It is that composition which makes the
+five-file design sufficient (one agent-def per tier, `model` free per call),
+without a model×effort matrix. The `subagent_type` carries the effort; the
+`model` parameter carries the model.
+
 Invoke the `Agent` tool with these parameters — **"same repo" mode**:
 
 ```
 Agent({
-  subagent_type: "general-purpose",
+  subagent_type: "<subagent_type>",
   model: "<model>",
   isolation: "worktree",
   run_in_background: true,
@@ -536,11 +526,11 @@ Agent({
 ```
 
 **Cross-repo mode**: the same parameters **without the `isolation` line**, and
-with the prompt from **Template B** below (instead of Template A).
+with the **cross-repo** call prompt below (instead of the "same repo" one).
 
 ```
 Agent({
-  subagent_type: "general-purpose",
+  subagent_type: "<subagent_type>",
   model: "<model>",
   run_in_background: true,
   description: "SDD <TICKET-ID>",
@@ -563,499 +553,77 @@ Then **wait for its completion notification** before moving to Step 6.1. Spawn
 no reviewer until the implementer has returned its report: they would have no
 commit to review.
 
-### Two complete implementer prompt templates, chosen by mode
+### Two call prompts, chosen by mode — the manual is a FILE
 
-⚠️ **These two blocks are fenced with FOUR backticks**, because they themselves
-contain three-backtick excerpts. A three-backtick closing would end the
-template at the first excerpt — and everything after (substitutions, steps)
-would be swallowed into a code block. If you add an excerpt here, keep it at
-three.
+What you send is no longer a template to copy out: it is a **pointer**, a few
+lines long. The implementer's complete manual — SDD, guardrails, findings
+handling, report format — lives in `prompts/impl-same.md` and
+`prompts/impl-cross.md`, which the sub-agent **reads itself** from the machine's
+`.claude`. There is therefore nothing left to copy, hence nothing left to get
+wrong: that is the entire point of the mechanism.
 
-**"Same repo" mode** → copy **Template A** below, verbatim, placeholders
-substituted. **"Cross-repo" mode** → copy **Template B** below, verbatim,
-placeholders substituted. Each template is complete and self-contained — **no
-more surgery**: the old Step 6' ("four replacements" to perform from memory on
-the template) is gone; its result is frozen once and for all in Template B.
+⛔ **NEVER copy a manual's content into a call prompt**, not even "so the agent
+has it in front of it". Copying is precisely what this mechanism removes — the
+copy that, past a session's 10th launch, was losing 30% of its mass (including
+the "If you are resumed with findings" section) with nothing flagging it.
 
-<!-- TEMPLATE:same-repo -->
+**"Same repo" mode** → the `<!-- CALL:impl-same -->` block. **"Cross-repo" mode**
+→ the `<!-- CALL:impl-cross -->` block. Each block is complete and self-contained:
+you substitute values into it and nothing else — you remove no line and add none.
+
+<!-- CALL:impl-same -->
 ````
-You will implement ticket <TICKET-ID> end to end following the project's SDD.
+You are implementing a ticket in SDD. Here are your variables:
 
-**Spec path (absolute)**: <ABSOLUTE_SPEC_PATH>
-**Expected effort**: <effort> — calibrate your reasoning depth on it
-(`none` = straight ahead; `think`/`think-hard`/`ultrathink` = think before coding).
-
-You work in a dedicated git worktree — your Step 0 below tells you which one and
-how to lock your shell onto it. You write nowhere else.
-
-⚠️ **Read `CLAUDE.md` at the root BEFORE coding.** It is what describes the
-stack, the verification commands, the conventions and the guardrails **of this
-project** (ORM, migrations, deployment, red lines…). This prompt is generic: it
-presumes no stack. On conflict, `CLAUDE.md` (project, then global) wins.
-
-## Step 0 — Lock your isolated worktree (CRITICAL — BEFORE ANY OTHER COMMAND)
-
-⚠️ In a **parallel** launch, your Bash shell may start in the PARENT worktree
-instead of yours, while Write/Edit are sandboxed onto YOUR isolated worktree.
-Uncorrected: `git commit` writes on the wrong branch, and you would be tempted
-to work around it via PowerShell — FORBIDDEN. Synchronize shell ↔ worktree, in
-this order:
-
-1. With the **Write** tool, create a probe file `.agent_worktree_probe_<TICKET-ID>`
-   (content: `<TICKET-ID>`). Write necessarily writes into YOUR isolated worktree.
-   ⚠️ The name **must** be suffixed with the ID: a fixed name collides when
-   several agents run in parallel, and each locks its neighbor's worktree.
-2. Locate it and put your shell there (⛔ `sed`, not `awk`: see the Step 5.5
-   warning — a positional awk field arrives substituted, hence empty, on the
-   agent side):
-   ```bash
-   MINE=$(for w in $(git worktree list --porcelain | sed -n 's/^worktree //p'); do [ -f "$w/.agent_worktree_probe_<TICKET-ID>" ] && echo "$w" && break; done)
-   echo "Isolated worktree: $MINE"
-   cd "$MINE" && rm -f ".agent_worktree_probe_<TICKET-ID>"
-   echo "Shell locked: $(git rev-parse --show-toplevel) — branch $(git rev-parse --abbrev-ref HEAD)"
-   ```
-3. **Check**: the branch must be `worktree-agent-*` (yours), NOT `claude/*` nor
-   `main`. If `$MINE` is empty or the branch is `claude/*` → **STOP**, report
-   "isolation mismatch", commit nothing, write NO file via PowerShell/echo/
-   python. Failing cleanly beats contaminating the parent branch.
-
-The `cd` persists between your Bash commands. If a command seems to start
-elsewhere again, prefix it with `cd "$MINE" && `.
-
-## Step 0.1 — Synchronize your worktree onto live main
-
-⚠️ **Critical.** Your worktree was forked from the **parent session's start
-commit**, NOT from live `main`. It can therefore be **behind**: recent commits
-(including the maturation of YOUR ticket) may not be in it yet.
-
-**So, before reading the spec, resynchronize:**
-
-```bash
-git rebase main
-```
-
-- Conflicts → resolve by keeping `main`'s state for everything unrelated to
-  your ticket. If you cannot, **stop** and report.
-
-## Step 0.5 — Environment (node_modules): verify before presuming
-
-⚠️ **What follows assumes a worktree NESTED under the main worktree**
-(`<project-root>/.claude/worktrees/<you>`) — the case for the **majority** of
-projects, where Node/`tsc`/`npm` **walk up the tree** and automatically resolve
-main's `node_modules`. This is **not universal**: a project whose convention
-places its worktrees **outside** its own tree (see its `CLAUDE.md`) has nothing
-to walk up to, and `node_modules/` may even be absent (gitignored). **Verify
-first, do not presume**:
-
-```bash
-node -e "console.log(require.resolve('vitest/package.json'))"
-```
-
-- If the command **succeeds** (it points to main's `node_modules`):
-  ✅ **Create NO junction and do NOT run `npm install`.** Nothing to do — your
-  worktree already inherits main's installation. The test runner creates a
-  small **local** `node_modules/.vite` if needed (a real folder, ~1 KB of
-  cache) in your worktree — that is healthy: no contention between parallel
-  agents, and `git worktree remove` can delete it safely.
-- If the command **fails**: read the project's `CLAUDE.md` — it may document
-  that `npm install` is an explicit prerequisite in THIS repo (out-of-tree
-  worktree convention). Run `npm install` **only** if the `CLAUDE.md` confirms
-  it; otherwise **stop and report** rather than guessing.
-
-⚠️ **NEVER use `mklink /J node_modules …` (junction), even in the "nested"
-case.** A junction to main's `node_modules` is a landmine: `git worktree
-remove` (the harness's auto-clean) **descends into it and empties main's real
-`node_modules`**, breaking build/test/tsc everywhere. Without a junction, that
-risk does not exist.
-
-## File tools (IMPORTANT — do not lose 2 hours on this)
-
-- You are in **YOUR own isolated worktree** (a dedicated temporary path). Your
-  CWD IS that worktree's root. **Work with RELATIVE paths** (`lib/...`,
-  `app/...`, `specs/...`).
-- **Use the `Write` and `Edit` tools** to create/modify files. If a tool
-  refuses an **absolute** path, you are pointing **outside your worktree**
-  (e.g. at `…/worktrees/<other>/…` or the parent worktree) → switch back to
-  **relative**. Do not "enter" another worktree.
-- **NEVER write files via `bash`/`echo`/heredoc/`python`/`.mjs`/PowerShell.**
-  It is slow and it **breaks on backticks and apostrophes** (TSX template
-  literals, JSON) → failure loop. `Write`/`Edit` handle any character without
-  escaping.
-- You touch ONLY files of your worktree. Never another worktree's.
-
-## SDD discipline (non-negotiable)
-
-1. **Spec**: read the spec linked above in full. It is the source of truth.
-   If it **points to a design spec** (e.g. `See [parse.md](parse.md)`), read
-   that spec too — the ticket file may be a mere pointer.
-2. **Tests**: write the tests BEFORE the production code, with the project's
-   runner. Respect the global `CLAUDE.md` test rules (new `lib/` and
-   `db/repo/` files → test in the SAME commit; API routes → happy path +
-   missing auth + business error).
-3. **Code**: implement until the tests pass.
-4. **Verification**: the project's verification commands (typically `npm test`
-   + `npm run typecheck` — cf. `CLAUDE.md`) must be **green BEFORE** commit.
-5. **Backlog: DO NOT TOUCH IT.** ⛔ NEVER edit `specs/backlog.md`,
-   `backlog.json`, nor your ticket's frontmatter. The backlog is **generated
-   data**: `specs/backlog.md` is a sentinel-locked view, and the status is a
-   **field** set automatically by the hooks (`wip` at launch,
-   `merged`/`shipped` at `/send`) from your `feat/fix(<TICKET-ID>):` commit.
-   Any hand edit creates a view↔frontmatter divergence that the coherence test
-   will reject at `/send`.
-6. **Commit**: message following the convention (`feat(<TICKET-ID>): …` or
-   `fix(<TICKET-ID>): …`). The scope **must** be the ticket ID: it is what the
-   hook reads to promote the status. Do not touch the changelog (cf. global
-   `CLAUDE.md`: the version bump is a human decision).
-7. **Final report, then STOP.** Write your report (format below) and run no
-   further command. Your working tree must be **clean**: everything committed.
-   ⛔ **Invoke NEITHER `/send` NOR `/deploy`.** Integration into `main` is not
-   your job: it is done by the orchestrator that launched you, after a review
-   gate you do not run and whose modalities you need not know. You may be
-   **resumed** afterwards with a list of findings — in that case, apply the
-   next section.
-
-## If you are resumed with findings
-
-Your diff has been reviewed. You are handed a numbered list of findings. You do
-not know — and need not know — where they come from: handle them all.
-
-1. **Triage.** By default **EVERY finding gets fixed**. Three closed
-   exceptions, and no other:
-
-   | | Case | What you do |
-   |---|---|---|
-   | **E1** | The fix requires **changing the spec** — the finding contests the *what*, not the *how* | **Escalate** in your reply. You do not touch the spec. |
-   | **E2** | **Pre-existing debt**: the defect would exist identically if your ticket had never shipped | Create a ticket (`backlog new`) and give its id |
-   | **E3** | The fix **breaks an existing green test** | **Escalate**. You do not modify that test. |
-
-   ⚠️ **E2 is the only exception to point 5 of the SDD discipline**, and it
-   goes through the **tool** (`backlog new`), never through a hand edit. The
-   tool leaves behind a `specs/<new-id>.md` and the regenerated artifacts:
-   commit them **separately**, as `chore(backlog): new <new-id>`, to make your
-   working tree clean. Do not leave them uncommitted — integration stops on a
-   dirty tree — and do not mix them into your ticket commit.
-
-   ⚠️ **E2 is NOT tested on the file's location.** The question is "would this
-   defect exist if my ticket had not shipped?", **not** "is the file in my
-   diff?". If you added a flag and left its doc stale, the doc file is outside
-   your diff but the fix is **within** your scope. "The file is old" proves
-   nothing: it is the **staleness** that is new, not the file. (Mistake
-   actually made on a real ticket, despite this warning — read it twice before
-   classifying anything as E2.)
-
-   ⚠️ **If a finding reaches you off-format, treat it as a finding anyway.** A
-   badly worded remark is still a real problem someone saw. Do not hide behind
-   "it was not a formal finding" — that is exactly how a defect gets through.
-
-   ⛔ **No silent dismissal.** A finding has exactly two exits: fixed, or
-   escalated **with its justification**. You do not have the right to file it
-   away because "it's not serious" — you do not judge importance, you observe
-   which box it falls into, and the answer is almost always "none".
-
-   If **two findings contradict each other**, do not arbitrate: that is **E1**,
-   escalate both formulations together.
-2. **Fix**, respecting SDD (test first if the fix changes behavior). Then
-   **re-run tests + typecheck** — they must be green. Amend your commit or add
-   a `fix(<TICKET-ID>): …` commit.
-3. **Return your disposition table**, one line per finding received, in ITS
-   original numbering — no line omitted, no line empty:
-
-   ```
-   | # | Disposition |
-   |---|---|
-   | 1 | fixed (<sha>) |
-   | 2 | escalated — E1: <justification> |
-   | 3 | ticket created — E2: <id> |
-   ```
-
-   Then **STOP**, working tree clean. Still no `/send`, no `/deploy`, and **no
-   second review**: you spawn none.
-
-## Generic guardrails (the project's CLAUDE.md complements)
-
-- **No command that touches a live service or can prompt.** No DB connection,
-  no dev server, no interactive tool/CLI awaiting input. Your worktree has no
-  secrets (`.env.local`) → those commands fail or **hang**. Stick to the
-  project's offline test/typecheck commands.
-- **Read the specific guardrails in `CLAUDE.md`** (e.g. migration rules, ORM,
-  forbidden files) and respect them to the letter. If it forbids a command, do
-  not run it, even if it seems useful to you.
-- No `.md` file created without an explicit request from the spec.
-- If the spec indicates a migration toward a future merge (e.g. moving a
-  component), do it following the spec.
-
-## Expected final report
-
-When you finish, return ON THE FIRST LINE the model used, then a recap:
-
-```
-Model used: <your effective model, e.g. claude-sonnet-5>
 Ticket: <TICKET-ID>
-Branch: <name>
-Commit: <SHA>
-```
+Spec (absolute): <ABSOLUTE_SPEC_PATH>
+Effort: <effort>
 
-Followed by:
-- Short summary (≤ 5 lines) of what was implemented
-- Tests added and their count
-- Difficulties encountered (if any)
-
-**Important**: the first line `Model used: ...` is non-negotiable — it lets the
-user verify that the model decided during maturation was actually used. You
-know your execution model (it is in your system context). State it precisely.
-
-## If you find yourself stuck
-
-- Spec ambiguous on a point → pick the most conservative interpretation,
-  document the choice in the commit.
-- Existing tests broken by your change → fix the tests if the spec requires
-  it, otherwise **stop** and report.
-- Undelivered dependency detected during implementation → **stop**, report.
-- **A command that hangs / exceeds ~3-5 min or awaits input → ABORT it** (use a
-  bounded timeout) and report. **Never** stay blocked indefinitely, do not
-  relaunch a command that already hung. A hanging command = almost always a
-  connection to a service (DB) or an interactive prompt: change approach or
-  stop and report.
-
-You have carte blanche inside the worktree. Work in strict SDD.
-````
-
-<!-- TEMPLATE:cross-repo -->
-````
-You will implement ticket <TICKET-ID> end to end following the project's SDD.
-
-**Spec path (absolute)**: <ABSOLUTE_SPEC_PATH>
-**Expected effort**: <effort> — calibrate your reasoning depth on it
-(`none` = straight ahead; `think`/`think-hard`/`ultrathink` = think before coding).
-
-You work in a dedicated git worktree — your Step 0 below tells you which one and
-how to lock your shell onto it. You write nowhere else.
-
-⚠️ **Read `CLAUDE.md` at the root BEFORE coding.** It is what describes the
-stack, the verification commands, the conventions and the guardrails **of this
-project** (ORM, migrations, deployment, red lines…). This prompt is generic: it
-presumes no stack. On conflict, `CLAUDE.md` (project, then global) wins.
-
-## Step 0 — Lock your shell (CRITICAL — BEFORE ANY OTHER COMMAND)
-
-Your worktree was mounted for you in a DIFFERENT repo than the session
-launching you. The harness will not assign it to you: you go there, and you
-verify.
+Your manual — SDD, guardrails, findings handling, report format — is a FILE,
+outside your worktree. Resolve its path, then read it IN FULL with the Read tool
+BEFORE any other action:
 
 ```bash
-cd "<worktree_path>"
-test "$(git rev-parse --abbrev-ref HEAD)" = "<target_branch>" || { echo "MISMATCH"; exit 1; }
-git rev-parse --show-toplevel
+node -e "console.log(require('path').join(require('os').homedir(),'.claude','prompts','impl-same.md'))"
 ```
 
-MISMATCH → **STOP**, report it, commit nothing, write NO file. This is an
-assertion, not a search: do not go fishing for another directory.
+⛔ If you cannot read that file, STOP and report it. Do not improvise what comes
+next and do not work from memory: everything you have to do is written there.
+````
 
-⚠️ Verify your path at EVERY write: the same files exist in this repo's main
-checkout. An absolute path that does not start with `<worktree_path>` is an
-error, never a shortcut.
+**Substitutions for this block — CLOSED list**: `<TICKET-ID>` (the skill's
+argument) · `<ABSOLUTE_SPEC_PATH>` (the `absoluteSpecPath` field from Step 1 —
+**never** a relative path nor a path built on the session's repo:
+`<target_root>` is not guaranteed equal to the session's root, even in
+`same-repo` (Step 1.2) — the agent could not open it, or worse, would open a
+stale homonym) · `<effort>` (the frontmatter's effort, Step 2). Nothing else: one
+more variable is a ticket, not a launch-time improvisation.
 
-⚠️ **This `cd` only applies to your Bash shell, and only while it persists.**
-No sandbox brings you back here: if a command seems to start elsewhere, if a
-`git status` shows you a tree you do not recognize, or at the slightest doubt,
-prefix the command with `cd "<worktree_path>" && `. Do it without hesitation
-for commands that write — installation, tests, `git add`, `git commit`: a
-single one of them executed elsewhere is enough to land your work on the wrong
-tree, and nothing will tell you.
+<!-- CALL:impl-cross -->
+````
+You are implementing a ticket in SDD. Here are your variables:
 
-## Step 0.1 — Synchronization
-
-Nothing to do: your worktree was just created from this repo's live `main`. Do
-not rebase, do not merge, pull nothing.
-
-## Step 0.5 — Environment (node_modules)
-
-Your worktree is OUTSIDE the repo's tree: dependency resolution walks up to
-nothing, and the dependency directory may be gitignored here. Installation in
-YOUR worktree is therefore an **explicit prerequisite**, not a no-op — run the
-project's install command (`CLAUDE.md`, failing that whatever the lockfile at
-the root betrays) before any verification. Node example:
-
-```bash
-npm install
-```
-
-- Installation failure → **stop and report**. Do not run the tests behind it:
-  they would fail for an environment reason that you would mistake for a
-  defect in your code.
-
-⚠️ NEVER use a junction / symlink to a neighboring `node_modules`:
-`git worktree remove` descends into it and empties the target's real
-`node_modules`.
-
-## File tools (IMPORTANT — do not lose 2 hours on this)
-
-- ⚠️ **No sandbox protects you here**: your worktree is not a harness-assigned
-  isolated worktree. The Step 0 `cd` moves your Bash shell, **nothing else** —
-  `Write`, `Edit`, `Read`, `Grep` and `Glob` resolve relative paths against the
-  directory you were launched from, which is NOT your worktree.
-- **Therefore work with ABSOLUTE paths**, all prefixed with `<worktree_path>`.
-  A relative path (`specs/…`, `lib/…`) will not be refused: it will write
-  elsewhere, silently, potentially into this repo's live checkout. That is the
-  most expensive failure mode of this launch mode.
-- **Use the `Write` and `Edit` tools** to create/modify files.
-  **NEVER write files via `bash`/`echo`/heredoc/`python`/`.mjs`/PowerShell**:
-  it is slow and breaks on backticks and apostrophes (TSX template literals,
-  JSON) → failure loop. `Write`/`Edit` handle any character without escaping.
-- Before your first write, re-read the path you are about to pass to `Write`:
-  if it does not start with `<worktree_path>`, it is a bug, not a shortcut.
-- ⛔ **This repo's main checkout may be LIVE** (the user's active
-  configuration, loaded by the harness while you work). You NEVER write into
-  it, under any pretext: no Edit, no Write, no `git` that modifies its tree.
-  The same files exist on both sides — that is exactly why the mistake is easy
-  and silent. Your only terrain is your worktree.
-
-## SDD discipline (non-negotiable)
-
-1. **Spec**: read the spec linked above in full. It is the source of truth.
-   If it **points to a design spec** (e.g. `See [parse.md](parse.md)`), read
-   that spec too — the ticket file may be a mere pointer.
-2. **Tests**: write the tests BEFORE the production code, with the project's
-   runner. Respect the global `CLAUDE.md` test rules (new `lib/` and
-   `db/repo/` files → test in the SAME commit; API routes → happy path +
-   missing auth + business error).
-3. **Code**: implement until the tests pass.
-4. **Verification**: the project's verification commands (typically `npm test`
-   + `npm run typecheck` — cf. `CLAUDE.md`) must be **green BEFORE** commit.
-5. **Backlog: DO NOT TOUCH IT.** ⛔ NEVER edit `specs/backlog.md`,
-   `backlog.json`, nor your ticket's frontmatter. The backlog is **generated
-   data**: `specs/backlog.md` is a sentinel-locked view, and the status is a
-   **field** set automatically by the hooks (`wip` at launch,
-   `merged`/`shipped` at `/send`) from your `feat/fix(<TICKET-ID>):` commit.
-   Any hand edit creates a view↔frontmatter divergence that the coherence test
-   will reject at `/send`.
-6. **Commit**: message following the convention (`feat(<TICKET-ID>): …` or
-   `fix(<TICKET-ID>): …`). The scope **must** be the ticket ID: it is what the
-   hook reads to promote the status. Do not touch the changelog (cf. global
-   `CLAUDE.md`: the version bump is a human decision).
-7. **Final report, then STOP.** Write your report (format below) and run no
-   further command. Your working tree must be **clean**: everything committed.
-   ⛔ **Invoke NEITHER `/send` NOR `/deploy`.** Integration into `main` is not
-   your job: it is done by the orchestrator that launched you, after a review
-   gate you do not run and whose modalities you need not know. You may be
-   **resumed** afterwards with a list of findings — in that case, apply the
-   next section.
-
-## If you are resumed with findings
-
-Your diff has been reviewed. You are handed a numbered list of findings. You do
-not know — and need not know — where they come from: handle them all.
-
-1. **Triage.** By default **EVERY finding gets fixed**. Three closed
-   exceptions, and no other:
-
-   | | Case | What you do |
-   |---|---|---|
-   | **E1** | The fix requires **changing the spec** — the finding contests the *what*, not the *how* | **Escalate** in your reply. You do not touch the spec. |
-   | **E2** | **Pre-existing debt**: the defect would exist identically if your ticket had never shipped | Create a ticket (`backlog new`) and give its id |
-   | **E3** | The fix **breaks an existing green test** | **Escalate**. You do not modify that test. |
-
-   ⚠️ **E2 is the only exception to point 5 of the SDD discipline**, and it
-   goes through the **tool** (`backlog new`), never through a hand edit. The
-   tool leaves behind a `specs/<new-id>.md` and the regenerated artifacts:
-   commit them **separately**, as `chore(backlog): new <new-id>`, to make your
-   working tree clean. Do not leave them uncommitted — integration stops on a
-   dirty tree — and do not mix them into your ticket commit.
-
-   ⚠️ **E2 is NOT tested on the file's location.** The question is "would this
-   defect exist if my ticket had not shipped?", **not** "is the file in my
-   diff?". If you added a flag and left its doc stale, the doc file is outside
-   your diff but the fix is **within** your scope. "The file is old" proves
-   nothing: it is the **staleness** that is new, not the file. (Mistake
-   actually made on a real ticket, despite this warning — read it twice before
-   classifying anything as E2.)
-
-   ⚠️ **If a finding reaches you off-format, treat it as a finding anyway.** A
-   badly worded remark is still a real problem someone saw. Do not hide behind
-   "it was not a formal finding" — that is exactly how a defect gets through.
-
-   ⛔ **No silent dismissal.** A finding has exactly two exits: fixed, or
-   escalated **with its justification**. You do not have the right to file it
-   away because "it's not serious" — you do not judge importance, you observe
-   which box it falls into, and the answer is almost always "none".
-
-   If **two findings contradict each other**, do not arbitrate: that is **E1**,
-   escalate both formulations together.
-2. **Fix**, respecting SDD (test first if the fix changes behavior). Then
-   **re-run tests + typecheck** — they must be green. Amend your commit or add
-   a `fix(<TICKET-ID>): …` commit.
-3. **Return your disposition table**, one line per finding received, in ITS
-   original numbering — no line omitted, no line empty:
-
-   ```
-   | # | Disposition |
-   |---|---|
-   | 1 | fixed (<sha>) |
-   | 2 | escalated — E1: <justification> |
-   | 3 | ticket created — E2: <id> |
-   ```
-
-   Then **STOP**, working tree clean. Still no `/send`, no `/deploy`, and **no
-   second review**: you spawn none.
-
-## Generic guardrails (the project's CLAUDE.md complements)
-
-- **No command that touches a live service or can prompt.** No DB connection,
-  no dev server, no interactive tool/CLI awaiting input. Your worktree has no
-  secrets (`.env.local`) → those commands fail or **hang**. Stick to the
-  project's offline test/typecheck commands.
-- **Read the specific guardrails in `CLAUDE.md`** (e.g. migration rules, ORM,
-  forbidden files) and respect them to the letter. If it forbids a command, do
-  not run it, even if it seems useful to you.
-- No `.md` file created without an explicit request from the spec.
-- If the spec indicates a migration toward a future merge (e.g. moving a
-  component), do it following the spec.
-
-## Expected final report
-
-When you finish, return ON THE FIRST LINE the model used, then a recap:
-
-```
-Model used: <your effective model, e.g. claude-sonnet-5>
 Ticket: <TICKET-ID>
-Branch: <name>
-Commit: <SHA>
+Spec (absolute): <ABSOLUTE_SPEC_PATH>
+Effort: <effort>
+Worktree: <worktree_path>
+Branch: <target_branch>
+
+Your manual — SDD, guardrails, findings handling, report format — is a FILE,
+outside your worktree. Resolve its path, then read it IN FULL with the Read tool
+BEFORE any other action:
+
+```bash
+node -e "console.log(require('path').join(require('os').homedir(),'.claude','prompts','impl-cross.md'))"
 ```
 
-Followed by:
-- Short summary (≤ 5 lines) of what was implemented
-- Tests added and their count
-- Difficulties encountered (if any)
-
-**Important**: the first line `Model used: ...` is non-negotiable — it lets the
-user verify that the model decided during maturation was actually used. You
-know your execution model (it is in your system context). State it precisely.
-
-## If you find yourself stuck
-
-- Spec ambiguous on a point → pick the most conservative interpretation,
-  document the choice in the commit.
-- Existing tests broken by your change → fix the tests if the spec requires
-  it, otherwise **stop** and report.
-- Undelivered dependency detected during implementation → **stop**, report.
-- **A command that hangs / exceeds ~3-5 min or awaits input → ABORT it** (use a
-  bounded timeout) and report. **Never** stay blocked indefinitely, do not
-  relaunch a command that already hung. A hanging command = almost always a
-  connection to a service (DB) or an interactive prompt: change approach or
-  stop and report.
-
-You have carte blanche inside the worktree. Work in strict SDD.
+⛔ If you cannot read that file, STOP and report it. Do not improvise what comes
+next and do not work from memory: everything you have to do is written there.
 ````
 
-**Substitutions to make before sending the chosen prompt (A or B)**:
-- `<TICKET-ID>` → the skill's argument
-- `<ABSOLUTE_SPEC_PATH>` → absolute path to the spec, i.e. `<target_root>` +
-  `/` + the `file` from Step 1. **Never** a relative path nor a path built on
-  the session's repo: in cross-repo, the agent could not open it — or would
-  open a homonym.
-- `<effort>` → the frontmatter's effort (Step 2)
-- **Template B only**: `<worktree_path>` and `<target_branch>` → already
-  resolved at Step 4.5, copy them as-is, do not re-derive them.
+**Substitutions for this block — CLOSED list**: the three of the previous block,
+plus `<worktree_path>` and `<target_branch>` — both already resolved at Step 4.5,
+copied as-is, never re-derived.
 
 ⚠️ **The review dosage is NOT injected into this prompt**, and that is
 deliberate: the implementer must know neither the number of reviewers, nor the
@@ -1122,8 +690,16 @@ the gate (Steps 6.2 to 6.7).
 
 **Dosage: the frontmatter's `review` (Step 2), `light` if the field is absent.**
 
-If the dosage is `none` → **skip the rest of this step and Steps 6.3 to 6.6**,
-go directly to Step 6.7 (integration).
+If the dosage is `none` → **skip the rest of this step and Steps 6.3 to 6.6**.
+⚠️ **Except Step 6.6.5**: if the implementer declared a spec escalation in its
+first-pass report (its SECOND trigger source, § Step 6.6.5), go through 6.6.5
+anyway before continuing — that is the ONLY case in which a `none` dosage still
+reads a step between 6.2 and 6.7: without that detour, the signal would be lost
+in precisely the dosage that has no downstream gate to catch it. Otherwise, go
+directly to Step 6.7 (integration), **then to Step 6.8** (measurement): a `none`
+cycle also produces its record, with `reviewed: false`. Without that pointer,
+cycles without review would be the **only** ones recording nothing — exactly the
+population you need to be able to count.
 
 Otherwise, constate the starting state **yourself** — it is half of the
 review's read-only guarantee:
@@ -1140,15 +716,46 @@ git -C "<WORKTREE_IMPL>" status --porcelain
 
 ## Step 6.3 — Spawn the reviewers (YOU spawn them)
 
+**Resolve the `subagent_type` — pinned, NOT session inheritance.** Each reviewer
+is spawned with `subagent_type: "sdd-reviewer"` — a **generated** agent-def whose
+frontmatter is `model: opus`, `effort: high`, with disk↔generator coherence locked
+by a test, the same mechanism as the `sdd-impl-*` tiers of Step 6. **Do NOT pass a
+`model` parameter to this call**: unlike the implementer (Step 6), the reviewer's
+setting is **fixed**, carried by the agent-def itself — letting it inherit the
+orchestrating session's model or effort is precisely the defect this closes. The
+review's **power** therefore no longer depends on the session that launches
+`/sdd-run-ticket`; only the **number** of reviewers (below) remains a dosage.
+
+**At dosage `deep` only**, first compute one report path per reviewer,
+`<REPORT_PATH>` — **OUTSIDE any repository** (a temporary directory, e.g.
+`<tmpdir>/sdd-review-<TICKET-ID>-<n>-<suffix>.md`). Three rules, all necessary:
+
+- **One file per reviewer, never a shared file**: with a shared file, one
+  reviewer would read another's report and the independence of the draws — the
+  entire value of the `deep` dosage — would be destroyed.
+- **`<suffix>` is NEW on every execution of this step** (a timestamp, a PID, or a
+  random value — never just `<TICKET-ID>-<n>`): a retry of the same ticket after
+  an abort (dirty worktree at Step 6.2, inadmissible report at Step 6.4) must
+  **never** reuse a path from a previous attempt, where a stale file could still
+  be lying around — the Step 6.4.5 aggregator has no way of telling a fresh
+  report from one left by an earlier launch at the same path.
+- **At dosage `light`, compute NOTHING**: no aggregator will ever read that file
+  (§ Step 6.4.5), writing it would be dead work every cycle.
+
+That path is the value to substitute into the `CALL:reviewer-deep` block below;
+**keep it**, Step 6.4.5 needs it.
+
 With the `Agent` tool:
 
-- `subagent_type: "general-purpose"`, `run_in_background: false`
+- `subagent_type: "sdd-reviewer"`, `run_in_background: false`
 - ⚠️ **WITHOUT the `isolation` parameter** — the reviewer must land in the
   implementer's worktree. Giving it an isolated worktree would make it review
   another tree.
-- `prompt: <REVIEWER_PROMPT>` — the **frozen template** below.
-  **Substitutions of this parameter**: `<REVIEWER_PROMPT>` → the frozen
-  template copied in full, its own placeholders already filled in by you.
+- `prompt: <REVIEWER_PROMPT>` — the dosage's **call prompt**: the
+  `<!-- CALL:reviewer-light -->` block in `light`, the
+  `<!-- CALL:reviewer-deep -->` block in `deep`.
+  **Substitutions of this parameter**: `<REVIEWER_PROMPT>` → that block, copied
+  in full, its own placeholders already filled in by you.
 - `light` → **1** reviewer, who receives the 4 axes.
 - `deep` → **3** reviewers **in parallel** (a single message, 3 `Agent` calls).
   Each also receives **the 4 axes** — never a subset — with a different
@@ -1163,146 +770,84 @@ it. The reviewer must arrive blank on the diff: do not tell it an agent wrote
 this code, do not explain the choices made, do not suggest where to look. You
 have not read this diff either — that is comfortable, keep it that way.
 
-Keep the **raw** reports: they, and they alone, will feed Steps 6.5 and 6.6.
+Keep the **raw** reports: they, and they alone, feed Step 6.4's admissibility
+check and then Step 6.4.5 — which relays them as-is at dosage `light` (nothing to
+merge), or has them aggregated by the aggregator at dosage `deep` (§ Step 6.4.5).
+What Steps 6.5 and 6.6 receive is therefore no longer systematically the raw
+report itself: it is `<RAW_FINDINGS>`, defined at Step 6.4.5.
 
-### FROZEN reviewer prompt template
+### The two reviewer call prompts — its manual is a FILE
 
-**Authorized substitutions, and they alone**: `<TICKET-ID>`,
-`<ABSOLUTE_SPEC_PATH>`, `<WORKTREE_IMPL>` and `<SHA_IMPL>` (Step 6.1),
-`<AXES>` (next section). **All** are filled in by you, the orchestrator — the
-implementer never sees this template.
+The reviewer's complete manual — location assertion, prohibitions, **the 4 axes**
+and the output format — lives in `prompts/reviewer.md`, which the reviewer
+**reads itself**. The axes have stopped being an injection: they are now
+invariants of the file, and no reviewer can ever receive three out of four
+because a transcription got tired.
 
 ⚠️ Here, `<ABSOLUTE_SPEC_PATH>` is the `<spec_path>` **resolved inside
 `<WORKTREE_IMPL>`**, not in your own checkout: step 1 of SDD allows the spec to
 have been updated in the reviewed commit, and the reviewer judges the code
 **against the delivered contract**. Handing it your copy would make it review a
-stale spec — or a nonexistent path if your worktree does not yet have the
-ticket.
+stale spec — or a nonexistent path if your worktree does not yet have the ticket.
 
+<!-- CALL:reviewer-light -->
 ````
-You are a code reviewer. You produce a report, nothing else.
+You are a code reviewer. You produce a report, nothing else. Here are your variables:
 
-**Scope**: ticket <TICKET-ID>.
-**Reference spec (contract)**: <ABSOLUTE_SPEC_PATH>
-**Working directory**: <WORKTREE_IMPL>
+Ticket: <TICKET-ID>
+Reference spec (contract): <ABSOLUTE_SPEC_PATH>
+Working directory: <WORKTREE_IMPL>
+Reviewed commit: <SHA_IMPL>
 
-## Step 0 — Location assertion (BEFORE anything else)
+Your manual — location assertion, prohibitions, review axes, output format — is a
+FILE, outside this worktree. Resolve its path, then read it IN FULL with the Read
+tool BEFORE any other action:
 
 ```bash
-cd "<WORKTREE_IMPL>"
-test "$(git rev-parse HEAD)" = "<SHA_IMPL>" || { echo "MISMATCH"; exit 1; }
-git rev-parse --show-toplevel
+node -e "console.log(require('path').join(require('os').homedir(),'.claude','prompts','reviewer.md'))"
 ```
 
-If MISMATCH → **STOP**, report it, review nothing. Do not try to find the
-right directory yourself: this is an assertion, not a search.
-
-⚠️ **This `cd` only moves your shell.** Your reading tools (Read/Grep/Glob)
-resolve relative paths against the directory you were launched from, which is
-NOT this one. So open every file by its **absolute path under
-`<WORKTREE_IMPL>`**. A file read relatively would be another tree's version,
-and nothing would flag it.
-
-## Step 1 — Read the rules BEFORE the code
-
-In this order:
-1. `CLAUDE.md` at the project root
-2. The global `CLAUDE.md` (user instructions, already in your context)
-3. The reference spec above — it is the **contract**. The code must do what it
-   says, no more, no less.
-
-## Step 2 — Read the diff
-
-```bash
-git diff --stat main...HEAD
-git diff main...HEAD
-```
-
-Open the touched files in full when the diff alone is not enough to judge.
-
-## ⛔ Absolute prohibitions
-
-- **Write, modify or create NO file.** No Write, no Edit, no shell write
-  command, no `git add`/`commit`/`checkout`/`stash`/`rebase`.
-- Run no command touching a live service (DB, dev server): this worktree has
-  no secrets, those commands hang.
-- **Fix nothing.** You report. Someone else will fix.
-
-## Review axes — you receive them ALL, none is taken from you
-
-<AXES>
-
-## IMPOSED output format
-
-For each finding:
-
-### <short title>
-- **Where**: <file>:<line>
-- **What breaks**: <the failure, in one sentence>
-- **Scenario**: <concrete inputs / action sequence → wrong result>
-- **Axis**: <number>
-
-⚠️ **A finding without a concrete scenario is not a finding — omit it.**
-A style preference not anchored in any `CLAUDE.md` does not pass this format.
-
-⚠️ **The scenario may be one of USAGE, not only execution.** The victim may be
-a reader or an operator, not only a runtime. "The doc says to run X, but X has
-failed since this change" **is** a valid and complete scenario — do not
-self-censor because there is no crash to describe. Same for an error message,
-an example, a README or a comment made false.
-
-⚠️ **Nothing off-format.** If you have something to say, it goes through the
-format above or it does not go. ⛔ **No "in passing" remarks in prose**: that
-is the worst of both worlds — visible enough to show you saw it, not structured
-enough for anyone to be bound to fix it. If it is worth mentioning, it is worth
-a finding.
-
-⛔ **Do not say what is fine either.** No conformity recap, no "the rest of the
-contract holds", no list of validated decisions, no "point by point"
-verification. Your report contains only findings and the `TOTAL:` line. An
-exhaustive confirmation is not a proof — it once accompanied a report that
-declared conformant the very decisions on which it was missing a defect. That
-prose manufactures false confidence: it is more dangerous than silence,
-because it looks like verification.
-
-⚠️ **Do not invent findings to pad the count.** "Nothing to report" is a valid
-and expected answer. An empty report beats an inflated one — but an empty
-report **accompanied by prose remarks** is a contradiction: decide.
-
-End with one line: `TOTAL: <n> finding(s)`.
+⛔ If you cannot read that file, STOP and report it. Do not improvise what comes
+next and do not review anything from memory: everything you have to do is written
+there.
 ````
 
-### The 4 axes (to inject as `<AXES>`)
+**Substitutions for this block — CLOSED list**: `<TICKET-ID>` ·
+`<ABSOLUTE_SPEC_PATH>` (resolved inside the reviewed worktree, see above) ·
+`<WORKTREE_IMPL>` and `<SHA_IMPL>` (Step 6.1, taken **verbatim** from the JSON,
+never retyped). **No `<REPORT_PATH>` in `light`**: no aggregator spawns for a
+single report (§ Step 6.4.5), the file would have no reader. No lens is assigned:
+the single reviewer sweeps the four axes on an equal footing.
 
-The skill is **generic**: these axes presume no stack. The specifics arrive
-via the `CLAUDE.md` the reviewer reads at its Step 1 (axis 4).
+<!-- CALL:reviewer-deep -->
+````
+You are a code reviewer. You produce a report, nothing else. Here are your variables:
 
-⚠️ **The axes are not a partition.** No reviewer receives a subset: `<AXES>`
-always contains **all four**, whatever the dosage. Observed on a real `deep`
-run: the same finding was labeled "axis 1" by one reviewer and "axis 2" by
-another, none stayed in its lane, and the reviewer most disciplined about its
-axis is the one that found the **least**. Splitting the axes therefore splits
-nothing — it only authorizes a reviewer to ignore three axes out of four.
+Ticket: <TICKET-ID>
+Reference spec (contract): <ABSOLUTE_SPEC_PATH>
+Working directory: <WORKTREE_IMPL>
+Reviewed commit: <SHA_IMPL>
+Priority lens: <PRIORITY_AXIS>
+Report deposit path: <REPORT_PATH>
 
-1. **Spec conformity** — does the code do what the spec says, no more, no
-   less? Spec cases not covered? Behavior added that it does not ask for?
-2. **Contracts & data** — boundaries (inputs, persistence, serialization, API,
-   errors). Breakable invariants. Round-trip. Compatibility with existing
-   data.
-3. **Simplification & reuse** — duplication, wrong altitude, dead code.
-4. **Conformity to the `CLAUDE.md` rules** (project then global) — notably the
-   non-negotiable test rules.
+Your manual — location assertion, prohibitions, review axes, output format — is a
+FILE, outside this worktree. Resolve its path, then read it IN FULL with the Read
+tool BEFORE any other action:
 
-In **all** dosages, `<AXES>` = the 4 axes above, copied in full.
+```bash
+node -e "console.log(require('path').join(require('os').homedir(),'.claude','prompts','reviewer.md'))"
+```
 
-- In `light`: nothing more — the single reviewer sweeps them all.
-- In `deep`: the 4 axes **plus** one **priority lens** line, different per
-  reviewer, at the head of the injection:
-  - reviewer A → `Priority lens: start with axis 1, then sweep the other three.`
-  - reviewer B → same line with axis 2 · reviewer C → with axis 3.
+⛔ If you cannot read that file, STOP and report it. Do not improvise what comes
+next and do not review anything from memory: everything you have to do is written
+there.
+````
 
-⛔ Never remove an axis from a reviewer to "leave it its own": the lens
-**orders** its sweep, it does not restrict its scope.
+**Substitutions for this block — CLOSED list**: the four of the previous block,
+plus `<PRIORITY_AXIS>` (axis 1 for reviewer A, axis 2 for B, axis 3 for C — one
+different lens per reviewer, never a subset of the axes) and `<REPORT_PATH>` (the
+per-reviewer path computed above, distinct for each of the three).
+
 
 ---
 
@@ -1333,26 +878,86 @@ Never count such a report in `R`.
 
 ---
 
+## Step 6.4.5 — Aggregating the findings (dosage `deep` only)
+
+**Pointer — conditional read.** **At dosage `light`, skip this entire step**: a
+single report, nothing to merge — `R = U`, go directly to Step 6.5 with that
+report as `<RAW_FINDINGS>`. ⛔ That path does not read the file below: there is
+nothing there for it.
+
+**At dosage `deep`**, the body of this step is in `steps/review-deep.md`. Resolve
+its path, then read it IN FULL with the `Read` tool:
+
+```bash
+node -e "console.log(require('path').join(require('os').homedir(),'.claude','steps','review-deep.md'))"
+```
+
+⛔ If you cannot read that file, **STOP and report it** — do not guess what it
+contains, and do not skip the step silently. ⚠️ The `<!-- CALL:aggregator -->`
+block below, however, **stays here**: the body is read over there, the block is
+copied from here — the round-trip is intended, and this sentence is what
+announces it.
+
+<!-- CALL:aggregator -->
+````
+Ticket: <TICKET-ID>
+Report 1: <REPORT_PATH_1>
+Report 2: <REPORT_PATH_2>
+Report 3: <REPORT_PATH_3>
+
+Your system prompt points you at `prompts/reviewer.md`: that pointer DOES NOT
+APPLY to this launch. Your conduct is entirely in `prompts/aggregator.md`, outside
+this worktree. Resolve its path, then read it IN FULL with the Read tool BEFORE
+any other action:
+
+```bash
+node -e "console.log(require('path').join(require('os').homedir(),'.claude','prompts','aggregator.md'))"
+```
+
+⛔ If you cannot read that file, STOP and report it. Do not improvise what comes
+next and do not work from memory: everything you have to do is written there.
+````
+
+**Substitutions for this block — CLOSED list**: `<TICKET-ID>` ·
+`<REPORT_PATH_1>`, `<REPORT_PATH_2>`, `<REPORT_PATH_3>` — the three paths
+computed at Step 6.3, in the order the reviewers were spawned.
+
+---
+
 ## Step 6.5 — Resume the implementer with the raw findings
 
-Merge the duplicates across reports (`R` raised findings → `U` unique findings),
-number the unique ones from 1 to `U`, and **resume the implementer**
-(`SendMessage` to the Step 6 agent — its context is intact, it reloads
-nothing) with this message:
+**Resume the implementer** (`SendMessage` to the Step 6 agent — its context is
+intact, it reloads nothing) with this message:
 
 ```
 Resumption on <TICKET-ID>. Your diff has been reviewed. Here are the findings, verbatim:
 
 <RAW_FINDINGS>
 
-Apply the "If you are resumed with findings" section of your initial prompt:
-triage (E1/E2/E3), fix, re-run tests + typecheck, commit. Then return your
+Apply the "If you are resumed with findings" section of your manual. Your manual
+is a FILE: re-read it IN FULL rather than trusting your memory — that is
+precisely the section memory loses. Its path:
+
+node -e "console.log(require('path').join(require('os').homedir(),'.claude','prompts','<manual>'))"
+
+Triage (E1/E2/E3), fix, re-run tests + typecheck, commit. Then return your
 disposition table — one line per number above — and STOP.
 ⛔ Invoke neither /send nor /deploy.
 ```
 
+⚠️ **The resolution command is given again here, and that is not redundancy**:
+the initial call prompt sits at the head of the context, so it is the first thing
+compaction summarizes away. An implementer resumed after a long implementation
+may no longer hold the path to its own manual — and would then handle the
+findings from memory, without E1/E2/E3 and without the disposition format. That
+is the failure mode this mechanism exists to close; do not remove those two
+lines.
+
 **Substitutions of this message**: `<RAW_FINDINGS>` → the `U` unique findings,
-numbered, composed under the following rules (the `<TICKET-ID>` is the
+numbered, composed under the following rules — the **aggregated list** of Step
+6.4.5 at dosage `deep`, the single report at dosage `light`; `<manual>` → the
+file name sent at Step 6 (`impl-same.md` in "same repo" mode, `impl-cross.md` in
+cross-repo) — **the same one**, never the other (the `<TICKET-ID>` is the
 skill's):
 
 - **Verbatim.** Each finding's text is copied as-is. You do not summarize it,
@@ -1438,52 +1043,123 @@ git status during the review: clean | WROTE — <what moved>
 
 ---
 
+## Step 6.6.5 — E1/E3 escalations (written, not merely published)
+
+⛔ **This runs only if the Step 6.6 register carries at least one
+`escalated — E1` or `escalated — E3` disposition, or if the implementer declared
+a spec escalation in its first-pass report** (§ "Spec escalation (first pass)" of
+its manual, the "contradictory spec" case of its "If you find yourself stuck"
+section). No escalation → no section, no commit: an empty section would say an
+arbitration was requested when none was — the same defect as a register
+fabricated at dosage `none` (§ Step 7). E2 is not concerned: the ticket it
+created is already its durable trace.
+
+- **Where**: the ticket's spec (`<ABSOLUTE_SPEC_PATH>`), resolved inside
+  `<WORKTREE_IMPL>` — never in a live checkout. **Appended into the body**, under
+  an `## Escalations` heading (a single section for the whole file; if one
+  already exists from a previous cycle, add an entry inside it rather than
+  creating a second), never in the frontmatter: the frontmatter stays mutated
+  exclusively by the tool (the skill's Strict rules). **Each escalation is a
+  level-3 heading under that container** — never `##` (already taken by the
+  container), never `####`: the `backlog escalations` verb requires that exact
+  depth.
+- **An escalation may bear on the spec itself, and that is the nominal case, not
+  an exception**: E1 means "the *what* has to change", so its most frequent
+  object is a defect **in the spec**. Do not soften it into "the spec should
+  perhaps be reviewed" — name the defect observed and cite what proves it. The
+  prohibition that bounds E1 ("you do not touch the spec") applies to the
+  **implementer**; you, the orchestrator, are precisely the one who writes here.
+- **How**: a separate commit, scoped to the spec alone —
+  `docs(<TICKET-ID>): escalation E1` (or `E3`, or `E1/E3`) — never folded into
+  the commit of the ticket that went through the gate: what is not reviewed code
+  must stay visible as such. That commit precedes the rebase of the `/send` that
+  follows; its SHA will be rewritten, without consequence — the trace is the
+  content.
+
+  ```bash
+  git -C "<WORKTREE_IMPL>" add "<ABSOLUTE_SPEC_PATH>"
+  git -C "<WORKTREE_IMPL>" commit -q --only -m "docs(<TICKET-ID>): escalation E1" -- "<ABSOLUTE_SPEC_PATH>"
+  ```
+
+  As for every command in this range of steps (Step 1.2), the repo is named **in
+  the command itself** (`-C "<WORKTREE_IMPL>"`), never by an earlier `cd`: a bare
+  `git` command would commit into your session's repo, not into the reviewed
+  worktree.
+- **Required content, no literal template** to copy word for word (a locked
+  formula prevents its own correction if its logic turns out to be wrong) — **the
+  elements depend on WHICH SOURCE** triggered this step (§ above); in both cases,
+  you do not arbitrate, you make arbitration possible:
+  - **"Register" source** (an `escalated — E1`/`E3` disposition) — four elements:
+    the **finding's number** in the Step 6.6 register and its type (E1 or E3);
+    **what the gate found**, with what makes it true (file, line, quote); **why
+    the implementer could not fix it**; **the possible ways out, not decided**.
+  - **"First pass" source** (the initial report's declaration, outside the
+    register) — three elements, NOT the four above: this source has neither a
+    finding number (Step 6.6 explicitly excludes it from `U`) nor a "what the
+    gate found" (the gate had not yet happened when it was declared) — do not
+    invent them. Instead: **the contradiction itself**, citing the two clauses
+    that exclude each other (file, line); **the choice the implementer made**,
+    and why it is the most conservative; **the possible ways out, not decided**.
+- **One single formal constraint, on the `###` title** — this disavowal of
+  templates covers the two content lists above, and there is no literal template
+  for this point either, but there is a locked prefix: the `###` title starts
+  with its tag — `E1`, `E3` or `E1/E3`, optionally suffixed (`E1-a`, `E1.b`,
+  `E1 (finding 2)`) — followed by the rest of the title. An escalation from the
+  "first pass" source is **always** tagged `E1` (it always contests the *what*,
+  never a test); its suffix then names the declaration rather than an absent
+  finding, e.g. `E1 (first-pass declaration)`. A mechanical reader
+  (`backlog escalations`) recognizes an escalation by that prefix; what this repo
+  *produces* must guarantee it, not leave it to inference.
+
+  ```
+  ### E1 (finding 2) — the position of the tag in the title
+  ```
+
+The register (6.6) and Step 7 keep publishing the escalations in conversation:
+this step adds to them, it does not replace them.
+
+---
+
 ## Step 6.7 — Integration
 
 The implementer never invokes `/send`: you integrate, once the register is
-closed. Put your shell in its worktree and verify it is clean:
+closed. Verify its worktree is clean — **every** command carries its own `cd`:
+the shell's current directory is not assumed to persist from one command to the
+next:
 
 ```bash
-cd "<WORKTREE_IMPL>"
-git status --porcelain
-git rev-parse --abbrev-ref HEAD
-git rev-parse HEAD
+cd "<WORKTREE_IMPL>" && git status --porcelain
+cd "<WORKTREE_IMPL>" && git rev-parse --abbrev-ref HEAD
 ```
 
 - **Non-empty** `status` output: **stop** — uncommitted work remains, and it
   is not yours to commit.
 - The branch must be the implementer's (`worktree-agent-*`), never `main`.
-- That last `git rev-parse HEAD` is the **final SHA**, the one you will
-  display at Step 7. It differs from `<SHA_IMPL>` as soon as the implementer
-  fixed anything (`fix(…)` commit added, or commit amended): `<SHA_IMPL>` is
-  only the review's anchor, and after an amend it no longer designates
-  anything.
 
-Then invoke the `/send` skill **from that directory** (rebase + fast-forward,
-and backlog hooks `merge`/`ship`).
+Then execute `/send` (rebase + fast-forward, and backlog hooks `merge`/`ship`).
 
-⚠️ **`/send` is worktree-scoped, hence repo-scoped — but only through your
-`cd`** (D3, SKILL-09). It takes no repo argument: it reads
-`git worktree list`, `git rebase main` and the hooks **from the current
-directory**. The `cd "<WORKTREE_IMPL>"` above is therefore the only thing
-making it work on the right repository, and there is no guard behind it.
-Verify before invoking:
+⚠️ **`/send` is not an isolated subprocess: you are the one executing, one by
+one, the commands it prescribes** (`send.md`) — in the same shell regime as those
+in the block above, hence with the same cwd that never persists from one command
+to the next. `/send` is out of scope here: its text still shows its bare `git`
+commands (it assumes a stateful `cd` written once in its Prerequisite). That
+changes nothing about the rule you apply to them here: **every `git` command you
+execute on its behalf** — prerequisite, rebase, hooks — carries the same
+`cd "<WORKTREE_IMPL>" && ` as the commands above, even when `send.md` shows it
+bare. There is **no single point** where "verify before invoking" would do: an
+isolated `cd "<WORKTREE_IMPL>"` run just before would protect none of the
+commands that follow — the guarantee is line by line, down to `/send`'s last
+command.
 
-```bash
-git rev-parse --show-toplevel
-```
-
-- That output must be `<worktree_path>` in cross-repo (the Step 5.7 worktree),
-  not the session's root. Otherwise **stop**: launched in the wrong place,
-  `/send` would rebase and fast-forward the **wrong repo**, while displaying a
-  perfectly credible success.
 - In cross-repo, the `main` into which `/send` fast-forwards is the target
   repo's — hence, when the target is `claude-config`, **the live checkout**.
   That is intended: it is where the deliverable must land. Nothing else is
   touched there.
-- **After `/send`, put your shell back** in the session's repo (`cd` to its
-  root). A shell left in another repository silently derails everything you
-  chain next — a second ticket, a verification command, another `/send`.
+- **No `cd` "stays" anywhere**: since the cwd never persists from one command to
+  the next, there is nothing to restore after `/send` — the next command,
+  wherever it is written (a second ticket, a verification, another `/send`),
+  starts from the session's root as always. Do not reintroduce a stateful `cd`
+  to "come back": that would be falling back onto the very premise this corrects.
 
 - ⛔ **NEVER run `/deploy`**: if `/send`'s message displays "→ Run /deploy",
   it is a suggestion for the user. Deploying to prod is a human decision.
@@ -1493,6 +1169,96 @@ git rev-parse --show-toplevel
   rebase → use `git show main:<file> > <file>`), `git add` the file, then
   `git rebase --continue`. Those artifacts are **regenerated** from the
   frontmatter — never edited. If it happens again, **stop and report**.
+
+### The `<final_sha>` is taken AFTER `/send`'s rebase, never before
+
+⚠️ **Do NOT take `<final_sha>` before executing `/send`.** Its own Step 3 (the
+rebase onto main) **rewrites every commit on the branch** — a SHA taken just
+before it is therefore dead by the time it would be displayed or recorded
+(observed while integrating a real ticket: `7c55bab` before `/send` had become
+`891f064` after the rebase). `/send`'s Step 4 fast-forward, on the other hand,
+rewrites nothing: it is indeed that rebase that matters.
+
+So, **immediately after executing `/send`'s Step 3** (before continuing to its
+own Step 3.5), take:
+
+```bash
+cd "<WORKTREE_IMPL>" && git rev-parse HEAD
+```
+
+⚠️ This reading assumes `/send`'s Step 3 **succeeded**. If `/send` stops before
+reaching it (its Step 0 guards failing) or during it (unresolved rebase
+conflicts), you have **no** `<final_sha>` to take — and nothing to invent:
+`/send` already prescribes an immediate stop in both cases (§ Strict rules:
+"Non-zero exit code at any step → stop, explain, do not continue"). So you stop
+there, **before** this reading, before Step 6.8 and before a nominal Step 7.
+
+It is **that** SHA — and only it — that you will display at Step 7 and pass to
+the writer of Step 6.8. It differs from `<SHA_IMPL>` in **two** cases, not one:
+
+1. the implementer fixed something (a `fix(…)` commit added, or a commit
+   amended);
+2. Step 6.6.5 added its `docs(<TICKET-ID>): escalation` commit — **without any
+   fix having taken place**. `<SHA_IMPL>` is only the review's anchor; after an
+   amend, a rebase, or that escalation commit, it no longer designates anything.
+   Neither case is an anomaly: it is the expected behavior of Step 6.6.5 and of
+   `/send`'s rebase.
+
+---
+
+## Step 6.8 — Measurement (written, not published)
+
+The Step 6.6 register is **published in conversation, then dies with the
+session**. This step writes its durable part: **one JSON file per ticket cycle**
+in a data repository, produced by a dedicated writer tool. You compose nothing —
+you pass it what **you** computed (the `R`/`U` counts, the per-lens attribution,
+each finding's disposition); the token counts and the launch's rank, for their
+part, are **read** from the transcript, never declared.
+
+⚠️ **YOU run this command, from your own shell tool.** Run by a sub-agent, it
+would measure the **sub-agent's** transcript — a different quantity, silently.
+
+```bash
+WRITER="$(node -e "console.log(require('path').join(require('os').homedir(),'.claude','tools','review-log','write.mjs'))")"
+node "$WRITER" \
+  --ticket "<TICKET-ID>" --project "<project>" --repo "<target_root>" --mode "<mode>" \
+  --sha "<final_sha>" --date "<date>" \
+  --model "<model>" --effort "<effort>" --review "<review>" \
+  --dosage "<dosage>" --reviewers "<n_reviewers>" --r "<R>" --u "<U>" \
+  --finding '<finding>'
+```
+
+`--finding` is **repeatable**: one occurrence per unique finding of the Step 6.6
+register, fields separated by a vertical bar, **the title last** so that a title
+containing a bar shifts nothing —
+`<i>|<reviewers>|<disposition>|<ref>|<short title>`, for example
+`2|A,C|fixed|9f2c1ab|the announced SHA does not exist`. The number is the
+register's (**integer ≥ 1**, never empty); `disposition` is a closed enum
+(`fixed` · `E1` · `E2` · `E3`); `ref` is the SHA (for `fixed`) or the ticket id
+(for `E2`), empty otherwise. **Zero unique findings → no `--finding` at all**,
+which is a perfectly valid observation.
+
+⚠️ **A finding's `ref` is taken BEFORE `/send`'s rebase.** It comes from the Step
+6.6 register, hence from before the integration of Step 6.7 — unlike
+`<final_sha>`, always taken AFTER. It may therefore no longer designate the
+commit actually delivered (rewritten by the rebase, or borrowed from another
+branch): the writer constates that itself, by checking the SHA's reachability
+from the branch.
+
+⚠️ **SINGLE quotes around `--finding`, never double.** The short title is free
+text copied from a reviewer's report, and those reports quote code between
+backquotes: on the titles this mechanism actually produces, **close to half
+contain at least one**, a few a double quote or a `$`. Inside double quotes, the
+shell would substitute the backquote and the dollar-parenthesis: the title would
+arrive **truncated** — silently, exit code 0, file written — and, with a title
+quoting a command, it is that command that would run in your shell. Inside single
+quotes, nothing is interpreted. **The one exception to handle**: a straight
+apostrophe cannot appear inside a single-quoted string — replace it, in the title
+only, with the typographic apostrophe `’`, and touch nothing else.
+
+At dosage `none`, the last four flags have no object — nobody looked, and `0`
+would be invented evidence. The command then drops `--dosage`, `--reviewers`,
+`--r` and `--u`, and carries no `--finding`.
 
 ---
 
@@ -1508,16 +1274,24 @@ Once the cycle is finished, display:
   Repo       : <target_root>
   Commit     : <final sha, Step 6.7>
   /send      : ✓ integrated into main | <error>
+  Measurement: <path of the file written, Step 6.8> | <reason for not writing>
 ```
 
-followed by the **Step 6.6 register** and any escalations (E1/E3), which are
-what the user must arbitrate.
+The **Measurement** line carries the absolute path returned by the writer, or —
+when nothing was written — the **reason** it printed on stderr (data repository
+absent, for instance). ⛔ Never leave it empty and never omit the reason: a
+silent no-op is indistinguishable from a forgotten measurement.
+
+Followed by the **Step 6.6 register** and any escalations (E1/E3), which are what
+the user must arbitrate — cf. Step 6.6.5 for their durable writing.
 
 In `none` dosage, Steps 6.3 to 6.6 did not happen: write the line
 `Review: none — no gate, no reviewer spawned` and **publish no register**.
 ⛔ Above all do not fabricate an empty one: `Check: 0 unique = 0 disposed ✓`
 means "reviewers looked and found nothing", and would here be invented
-evidence — the very defect this device fights.
+evidence — the very defect this device fights. Step 6.6.5 may have run
+nonetheless (its second source, § Step 6.2): if so, mention it here in one line,
+without counting it in a register that does not exist.
 
 ⚠️ **Verify, do not believe**: a sub-agent can return "completed" having
 stopped midway (tests half-written, no commit). Confirm that the
@@ -1594,7 +1368,7 @@ need the tree.
   **you** and never by an agent: the scoped backlog commit of Step 5.5 and
   `/send`'s fast-forward. No `checkout`, `reset`, `stash`, `clean`, no file
   edit, no `npm install`. The sub-agent, for its part, writes nothing there at
-  all — its prompt (Template B) explicitly forbids it.
+  all — its manual (`prompts/impl-cross.md`) explicitly forbids it.
 - If a step fails (resolution, validation, Agent launch): **stop**, explain
   what went wrong, do not continue.
 
@@ -1606,7 +1380,7 @@ need the tree.
 [user]    /sdd-run-ticket ANALYTICS-02S
 [skill]   Launching ANALYTICS-02S in SDD:
           Model     : sonnet
-          Effort    : think-hard
+          Effort    : high
           Review    : light (1 fresh reviewer)
           Repo      : /c/dev/myproject   ← same repo as the session
           Spec      : specs/analytics-02s-batch-compute-if-null.md (relative to the repo above)
@@ -1633,24 +1407,8 @@ need the tree.
 
 ### Cross-repo variant (ticket of another repo)
 
-```
-[user]    /sdd-run-ticket SKILL-09
-[skill]   → not found in the session's repo (Step 1)
-          → found in $HOME/.claude (Step 1.1) — switching to cross-repo
-          Launching SKILL-09 in SDD:
-          Repo      : /c/Users/me/.claude   ⚠️ CROSS-REPO
-          Spec      : specs/skill-09.md (relative to the repo above)
-          Isolation : cross-repo — worktree mounted by me at
-                      /c/Users/me/claude-config-wt/skill-09, agent WITHOUT isolation
-          Proceed? (yes / no)
-[user]    yes
-[skill]   ✓ worktree mounted on branch claude/skill-09 (from the target repo's main)
-          ✓ hook start set on the TARGET repo's main checkout
-          ✓ agent launched without isolation, amended prompt (Steps 0 / 0.1 / 0.5 + live-checkout prohibition)
-          ...
-[skill]   ✓ SKILL-09 delivered. Repo: /c/Users/me/.claude
-          (worktree kept — remove it when you no longer need it)
-```
+The worked example of a cross-repo cycle lives with the rest of that mode's body,
+in `steps/cross-repo.md` (Steps 4.5 and 5.7) — read there, not duplicated here.
 
 ---
 

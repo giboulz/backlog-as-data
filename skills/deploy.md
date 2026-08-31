@@ -5,6 +5,31 @@ Execute in exact order, skipping no step.
 
 ---
 
+## Prerequisite — `/deploy` only runs from `main`
+
+Check that the current branch is `main`:
+
+```bash
+git rev-parse --abbrev-ref HEAD
+```
+
+- If the branch is **not** `main`: **stop immediately**, display:
+  ```
+  ✗ /deploy only runs from main (current branch: <branch>).
+    Workflow: /sdd-run-ticket codes on a branch → /send integrates it into main → /deploy pushes from main.
+    To ship a branch's work, run /send first.
+  ```
+
+Guard **symmetric** to `/send`'s (which refuses to run *from* `main`). The `main`
+checkout is shared by 10-15 sessions/worktrees: a neighboring session may have
+left it on someone else's `claude/…` branch, in the middle of an unfinished
+series of commits. Without this guard, Step 4.1 (`git push origin HEAD:main`)
+would push that half-finished HEAD to production (incident 2026-07-23). To deploy
+a branch's work, integrate it into `main` via `/send` first, then run `/deploy`
+from `main`.
+
+---
+
 ## Step 0 — Configuration detection
 
 Read `.claude/deploy.md` if it exists in the current project to get the E2E
@@ -221,14 +246,25 @@ git pull --rebase origin main
 git push origin HEAD:main
 ```
 
-⚠️ `HEAD:main`, **never** `git push origin main`: from a worktree, the latter
-form pushes the parent repo's **local** `main` branch, not the current HEAD —
-the commits just made (including step 4.0's `chore(backlog): ship`) do not
-leave, silently: the push succeeds, it just pushes something else. Incident
-2026-06-22: two commits excluded from the push, CI red on the coherence test.
-From `main`, `HEAD:main` is strictly equivalent — hence the single form, with
-no condition on the branch. (The `pull --rebase`, for its part, does apply to
+⚠️ `HEAD:main`, **never** `git push origin main`. The Prerequisite guarantees we
+are on `main`, so `HEAD:main` ≡ `main:main` — the `HEAD:main` form is kept for
+consistency with `/send` (mode `push`) and `/fastship`, which push the same form.
+The `git push origin main` form stays **forbidden**: it pushes the **local**
+`main` branch as-is, and if the Prerequisite's guard were ever bypassed it would
+silently push something other than the current HEAD — the push would succeed,
+pushing the wrong content (incident 2026-06-22: two commits excluded from a push,
+CI red on the coherence test). (The `pull --rebase`, for its part, does apply to
 the current HEAD: it stays correct as-is.)
+
+Then, best-effort — this is the producer side of the SDD measurement contract
+toward an external consumer, with the same tolerance as the backlog hook above:
+this call can **never** fail `/deploy`, not on missing config, not on a broken
+consumer. Guarded by its own presence → a total no-op when absent:
+
+```bash
+TOOL="$(node -e "console.log(require('path').join(require('os').homedir(),'.claude','tools','sdd-push','push.mjs'))")"
+[ -f "$TOOL" ] && node "$TOOL" || true
+```
 
 After the push, display:
 ```

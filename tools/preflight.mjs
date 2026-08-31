@@ -145,8 +145,44 @@ export function resolveTargetRoot(sessionRoot, id, repoFlag) {
   return null;
 }
 
+// gitCommonDir(root) → chemin absolu POSIX du répertoire git commun de `root`,
+// ou null si `root` n'est pas (ou plus) résoluble en dépôt git (racine hors
+// dépôt, git absent…). `--git-common-dir` peut rendre un chemin RELATIF selon
+// le cwd et la version de git : on le résout en absolu contre `root` (celui
+// passé à `-C`) avant de le renvoyer — jamais contre le cwd du process courant.
+//
+// ⚠️ `git` (le binaire natif, pas MSYS) ne traduit PAS les chemins `/c/…` :
+// `spawnSync` est sans shell, donc aucune traduction n'a lieu. Une racine MSYS
+// non normalisée ferait échouer `-C` (`fatal: cannot change to '/c/…'`), donc
+// retomber SILENCIEUSEMENT dans le repli de `determineMode` — exactement le
+// défaut que ce fichier corrige par ailleurs (SKILL-44, finding revue). `root`
+// est donc passé à `git` sous sa forme `toPosixPath` (drive collé, `c:/…`),
+// que git accepte nativement sous Windows.
+function gitCommonDir(root) {
+  const nativeRoot = toPosixPath(root);
+  const r = spawnSync('git', ['-C', nativeRoot, 'rev-parse', '--git-common-dir'], {
+    encoding: 'utf8',
+  });
+  if (r.status !== 0 || typeof r.stdout !== 'string') return null;
+  const out = r.stdout.trim();
+  if (!out) return null;
+  const abs = path.isAbsolute(out) ? out : path.resolve(nativeRoot, out);
+  return toPosixPath(abs);
+}
+
 // determineMode(targetRoot, sessionRoot) → "same-repo" | "cross-repo"
+//
+// Le mode se décide sur le DÉPÔT, pas sur les chemins de travail (SKILL-44) :
+// un worktree d'un dépôt et le main de ce même dépôt partagent le même
+// `--git-common-dir` → same-repo, même si leurs racines de travail diffèrent.
+// Repli explicite (racine hors dépôt git, git absent, etc.) sur la comparaison
+// de chemins historique — jamais de throw, le mode doit rester décidable.
 export function determineMode(targetRoot, sessionRoot) {
+  const t = gitCommonDir(targetRoot);
+  const s = gitCommonDir(sessionRoot);
+  if (t !== null && s !== null) {
+    return normalizePath(t) === normalizePath(s) ? 'same-repo' : 'cross-repo';
+  }
   return normalizePath(targetRoot) === normalizePath(sessionRoot) ? 'same-repo' : 'cross-repo';
 }
 
@@ -162,22 +198,61 @@ function gitWorktreeRoots(targetRoot) {
     .filter(Boolean);
 }
 
+// Une valeur de slug est INUTILISABLE (→ règle suivante de repoSlug) si vide,
+// `.`, `..`, ou si elle contient un séparateur de chemin.
+function isUsableSlug(s) {
+  return Boolean(s) && s !== '.' && s !== '..' && !/[\\/]/.test(s);
+}
+
+// repoSlug(targetRoot) → le nom qui identifie le dépôt cible, résolu par une
+// chaîne DÉTERMINISTE de 3 règles (D1, specs/skill-85.md), la première qui
+// rend une valeur utilisable gagne :
+//   1. dernier segment de `git remote get-url origin` (suffixe .git retiré)
+//   2. basename(targetRoot), points de tête retirés
+//   3. 'repo', défaut de dernier recours
+//
+// ⚠️ `targetRoot` est passé à `git -C` sous sa forme `toPosixPath` — comme
+// `gitCommonDir` ci-dessus et pour la même raison (finding de revue SKILL-44,
+// repris en revue SKILL-85) : le binaire git natif ne traduit PAS une racine
+// MSYS (`/c/…`), et sans cette normalisation `-C` échoue puis on retombe
+// SILENCIEUSEMENT sur la règle 2, orphelinant la non-régression D1.
+//
+// ⚠️ Un lecteur NU (`c:`, sans slash final) n'est PAS la racine du lecteur
+// pour `-C` : Windows le lit comme « répertoire courant sur ce lecteur »,
+// c'est-à-dire le cwd du process — mesuré : `git -C c: rev-parse
+// --show-toplevel` rend le dépôt du process courant, PAS une erreur
+// « not a git repository ». `toPosixPath` strippant le slash final
+// (`C:/` → `C:`), un lecteur nu qu'elle produit est reforcé en racine
+// explicite avant l'appel `-C` — sans y toucher pour `path.basename`, où
+// `c:` et `c:/` sont équivalents (`''` dans les deux cas).
+function repoSlug(targetRoot) {
+  const nativeRoot = toPosixPath(targetRoot);
+  const gitCwd = /^[A-Za-z]:$/.test(nativeRoot) ? nativeRoot + '/' : nativeRoot;
+  const r = spawnSync('git', ['-C', gitCwd, 'remote', 'get-url', 'origin'], {
+    encoding: 'utf8',
+  });
+  if (!r.error && r.status === 0) {
+    const url = (r.stdout || '').trim();
+    const last = url.split('/').filter(Boolean).pop() || '';
+    const slug = last.replace(/\.git$/, '');
+    if (isUsableSlug(slug)) return slug;
+  }
+  const base = path.basename(nativeRoot).replace(/^\.+/, '');
+  if (isUsableSlug(base)) return base;
+  return 'repo';
+}
+
 // deriveWorktreePath(targetRoot, id) → {worktreePath, branch, underTarget}
-// Convention `$HOME/claude-config-wt/<id-minuscule>` HORS arborescence cible ;
-// branche `claude/<id-minuscule>`. Si la cible possède déjà un worktree
-// hors-arborescence, sa racine (dirname) est réutilisée (D3 cas d) ; sinon la
-// convention par défaut s'applique.
+// Convention `$HOME/<slug>-wt/<id-minuscule>` HORS arborescence cible ;
+// branche `claude/<id-minuscule>`. `<slug>` = repoSlug(targetRoot) (D1,
+// specs/skill-85.md). DÉTERMINISTE : contrairement à l'ancien cas (d) de la
+// D3 de specs/skill-13.md (amendé ici), la racine n'est JAMAIS lue sur les
+// worktrees existants de la cible — cette lecture était auto-référentielle et
+// rejouait l'erreur d'un tour précédent (§ Cause racine, specs/skill-85.md).
 export function deriveWorktreePath(targetRoot, id) {
   const suffix = String(id).toLowerCase();
   const branch = 'claude/' + suffix;
-  let racineWt = null;
-  for (const w of gitWorktreeRoots(targetRoot)) {
-    if (!isUnder(w, targetRoot)) {
-      racineWt = path.dirname(w);
-      break;
-    }
-  }
-  if (!racineWt) racineWt = path.join(os.homedir(), 'claude-config-wt');
+  const racineWt = path.join(os.homedir(), repoSlug(targetRoot) + '-wt');
   const worktreePath = path.join(racineWt, suffix);
   return {
     worktreePath: toPosixPath(worktreePath),
@@ -365,6 +440,8 @@ function mainResolve(args) {
         `✗ Ticket ${id} introuvable (aucun specs/**/*.md avec type: ticket + id: ${id}).\n` +
         `  Racines scannées : ${toPosixPath(sessionRoot)} · ${harness}\n` +
         `  → Le ticket existe-t-il ? (backlog list)\n` +
+        `  → Ton worktree de session est-il à jour ? Un ticket créé sur main après le ` +
+        `fork de ton worktree y est invisible — git -C "${toPosixPath(sessionRoot)}" rebase main\n` +
         `  → Il vit dans un TROISIÈME repo ? relance avec --repo <chemin absolu>.\n`,
     };
   }

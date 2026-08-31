@@ -1,10 +1,9 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import { execFileSync } from "node:child_process";
 import {
+  checkTripletCoherence,
   extractScopedTicketIds,
-  isExecAllowed,
   nextFreeTicketId,
   parseTicketFile,
   serializeTicketFile,
@@ -12,10 +11,8 @@ import {
   STATUS_DISPLAY_ORDER,
   STATUS_LABELS,
   ticketIdFromSpecFilename,
-  TICKET_STATUSES,
   validateTicket,
   type TicketFrontmatter,
-  type TicketStatus,
 } from "./ticket-frontmatter";
 import {
   buildSnapshot,
@@ -30,7 +27,8 @@ import {
   type HookEvent,
   type Transition,
 } from "./hook";
-import { ADOPTION_README, CHEATSHEET } from "./adoption-readme";
+import { CHEATSHEET } from "./adoption-readme";
+import { applyFieldAssignment } from "./set-fields";
 
 // INFRA-08 — Cœur testable du CLI `backlog`. Effets fs bornés sous `root`.
 // INFRA-14 — devenu le cœur du bundle global : gagne les commandes d'adoption
@@ -286,7 +284,7 @@ export async function writeArtifacts(
 }
 
 /** Warning commun quand le verrou a sauté le rendu de specs/backlog.md. */
-const MD_SKIPPED_WARN =
+export const MD_SKIPPED_WARN =
   " ⚠ specs/backlog.md non régénéré (fichier sans sentinel — verrou INFRA-10) : backlog.json et la vue lisible vont diverger, restaure une vue générée puis relance `npm run backlog -- snapshot`.";
 
 /**
@@ -328,7 +326,12 @@ function sourcesWith(
   );
 }
 
-const NEW_FLAGS: FlagSpec = { title: "value", epic: "value", priority: "value" };
+const NEW_FLAGS: FlagSpec = {
+  title: "value",
+  epic: "value",
+  priority: "value",
+  kind: "value",
+};
 
 async function cmdNew(
   args: string[],
@@ -339,12 +342,16 @@ async function cmdNew(
   if (!parsed.ok) return err(parsed.error);
   const { positionals, flags } = parsed.value;
   const id = positionals[0];
-  if (!id) return err("usage: new <ID> [--title <t>] [--epic <e>] [--priority <p>]");
+  if (!id) {
+    return err("usage: new <ID> [--title <t>] [--epic <e>] [--priority <p>] [--kind bug|feature]");
+  }
 
   const draft: Record<string, unknown> = { id, type: "ticket", status: "maturing" };
   if (flags.title) draft.title = flags.title;
   if (flags.epic) draft.epic = flags.epic;
   if (flags.priority) draft.priority = flags.priority;
+  // INFRA-41 — kind: bug|feature (validé par le Zod enum de validateTicket ci-dessous).
+  if (flags.kind) draft.kind = flags.kind;
   const res = validateTicket(draft);
   if (!res.ok) return err(res.errors.join("\n"));
 
@@ -370,7 +377,17 @@ async function cmdNew(
   }
 
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const newBody = `\n# ${id}\n`;
+  // INFRA-42 — scaffolde le squelette de sections dès la création (anti-oubli
+  // déterministe : la structure appartient à l'outil, pas à la mémoire de l'agent).
+  // Réutilise resolveCoreSections + scaffoldSections d'INFRA-41 — aucune logique
+  // nouvelle. Import paresseux (parité `brief`/`epic`) : évite le cycle de chargement
+  // cli ↔ ticket-brief. Le kind vient du --kind (absent = feature).
+  const { effectiveKind, resolveCoreSections, readTicketSectionsOverride } =
+    await import("./ticket-brief");
+  const { scaffoldSections } = await import("./brief-sections");
+  const kind = effectiveKind(res.value.kind);
+  const override = await readTicketSectionsOverride(root);
+  const newBody = scaffoldSections(`\n# ${id}\n`, resolveCoreSections(kind, override));
   await fs.writeFile(filePath, serializeTicketFile(res.value, newBody), "utf8");
   const { mdSkipped } = await writeArtifacts(root, [
     ...toSources(tickets, root),
@@ -386,6 +403,7 @@ const MATURE_FLAGS: FlagSpec = {
   effort: "value",
   review: "value",
   date: "value",
+  "override-coherence": "boolean",
 };
 
 async function cmdMature(
@@ -399,12 +417,28 @@ async function cmdMature(
   const id = positionals[0];
   if (!id) {
     return err(
-      "usage: mature <ID> --model <m> --effort <e> --review <r> --date <YYYY-MM-DD>",
+      "usage: mature <ID> --model <m> --effort <e> --review <r> --date <YYYY-MM-DD> [--override-coherence]",
     );
   }
-  if (!flags.model) return err("--model <fable|opus|sonnet|haiku> requis");
+  // BLG-06 — `--override-coherence` est booléen : il ne consomme JAMAIS le token
+  // suivant (P6). `mature X --override-coherence false` laisse donc « false » en
+  // positionnel superflu — sans ce garde, il serait silencieusement jeté et
+  // l'override activerait quand même, à l'inverse exact de l'intention tapée.
+  if (positionals.length > 1) {
+    return err(
+      `mature n'accepte qu'un seul positionnel (l'ID) — superflu : ${positionals
+        .slice(1)
+        .join(", ")} (--override-coherence ne prend pas de valeur)`,
+    );
+  }
+  if (!flags.model) return err("--model <fable|opus|sonnet> requis");
+  // EFFORT-COMPAT — haiku retiré de la nomenclature : plancher = sonnet. Toléré à
+  // la lecture d'un ticket historique, mais jamais posé par un nouveau `mature`.
+  if (flags.model === "haiku") {
+    return err("model haiku retiré de la nomenclature — plancher = sonnet (choisis fable|opus|sonnet)");
+  }
   if (!flags.effort) {
-    return err("--effort <none|think|think-hard|ultrathink> requis");
+    return err("--effort <low|medium|high|xhigh|max> requis");
   }
   if (!flags.review) return err("--review <none|light|deep> requis");
   if (!flags.date) {
@@ -430,6 +464,30 @@ async function cmdMature(
   const res = validateTicket(next);
   if (!res.ok) return err(res.errors.join("\n"));
 
+  // BLG-06 — cohérence du triplet : contrôlée sur l'effort NORMALISÉ (res.value,
+  // pas flags.effort brut — D1), APRÈS validation et AVANT écriture (ticket
+  // refusé reste intact sur disque). `--override-coherence` fait passer le geste
+  // sans exiger ni écrire de justification (D4).
+  if (res.value.exec && !flags["override-coherence"]) {
+    const violation = checkTripletCoherence(res.value.exec.model, res.value.exec.effort);
+    if (violation) {
+      // Le message cite la valeur SAISIE (flags.effort, ex. un alias legacy
+      // `think-hard`) et, si la normalisation l'a changée, sa forme officielle —
+      // sinon l'utilisateur ne retrouve pas dans le message la valeur qu'il a
+      // tapée et croit le CLI en faute de parsing.
+      const rawEffort = flags.effort ?? res.value.exec.effort;
+      const effortDesc =
+        rawEffort !== res.value.exec.effort
+          ? `--effort ${rawEffort} (normalisé en ${res.value.exec.effort})`
+          : `--effort ${res.value.exec.effort}`;
+      const message =
+        violation.reason === "below-floor"
+          ? `--model ${res.value.exec.model} est en dessous du plancher requis par ${effortDesc} (${violation.floor}) — surcharge avec --override-coherence si voulu`
+          : `--model ${res.value.exec.model} n'est pas classé dans l'échelle model/effort (plancher requis pour ${effortDesc} : ${violation.floor}) — surcharge avec --override-coherence si voulu`;
+      return err(message);
+    }
+  }
+
   await fs.writeFile(target.filePath, serializeTicketFile(res.value, target.body), "utf8");
   const { mdSkipped } = await writeArtifacts(root, sourcesWith(tickets, root, id, res.value));
   return ok(`maturé ${id} → ${res.value.status}${mdSkipped ? MD_SKIPPED_WARN : ""}`);
@@ -445,38 +503,40 @@ async function cmdSet(
   const { positionals } = parsed.value;
   const id = positionals[0];
   const assignment = positionals[1];
-  if (!id || !assignment) return err("usage: set <ID> status=<status>");
+  if (!id || !assignment) return err("usage: set <ID> clé=valeur");
+  // BLG-05, finding #1 — miroir du garde de `cmdMature` (BLG-06, plus haut) :
+  // tant que `status` était le seul champ mutable, un token perdu tombait de
+  // toute façon sur l'enum zod. `title` est du texte libre : une valeur
+  // tronquée par un positionnel superflu (titre non quoté, coupé par le
+  // shell) est VALIDE, donc écrite en silence sans ce garde.
+  if (positionals.length > 2) {
+    return err(
+      `set n'accepte que deux positionnels (ID puis clé=valeur) — superflu : ${positionals
+        .slice(2)
+        .join(", ")} (une valeur avec espaces doit être quotée : title="Mon titre")`,
+    );
+  }
   const eq = assignment.indexOf("=");
   if (eq === -1) {
     return err(`assignation invalide : « ${assignment} » (attendu clé=valeur)`);
   }
   const key = assignment.slice(0, eq).trim();
-  const val = assignment.slice(eq + 1).trim();
-  if (key !== "status") {
-    return err(`champ non mutable via set : « ${key} » (seul status l'est)`);
-  }
+  // Pas de .trim() sur la valeur (BLG-05 D3) : un titre à espace de tête/queue
+  // doit atteindre la validation zod telle quelle pour être refusé — le
+  // trimmer ici masquerait l'erreur au lieu de la signaler.
+  const val = assignment.slice(eq + 1);
 
   const { tickets } = await discoverTickets(specsDir);
   const found = findTarget(tickets, id);
   if (!found.ok) return err(found.message);
   const target = found.target;
 
-  const next: Record<string, unknown> = { ...target.frontmatter, status: val };
-  // Dématuration : passer vers un statut où `exec` est interdit le retire
-  // (sinon le `set` serait un cul-de-sac pour tout ticket maturé). `shipped`
-  // le CONSERVE (exec optionnel depuis INFRA-10 D1).
-  let note = "";
-  const isKnownStatus = (TICKET_STATUSES as readonly string[]).includes(val);
-  if (next.exec && isKnownStatus && !isExecAllowed(val as TicketStatus)) {
-    delete next.exec;
-    note = " (exec retiré : dématuration)";
-  }
-  const res = validateTicket(next);
-  if (!res.ok) return err(res.errors.join("\n"));
+  const res = applyFieldAssignment(target.frontmatter, key, val);
+  if (!res.ok) return err(res.error);
 
-  await fs.writeFile(target.filePath, serializeTicketFile(res.value, target.body), "utf8");
-  const { mdSkipped } = await writeArtifacts(root, sourcesWith(tickets, root, id, res.value));
-  return ok(`${id} → ${val}${note}${mdSkipped ? MD_SKIPPED_WARN : ""}`);
+  await fs.writeFile(target.filePath, serializeTicketFile(res.next, target.body), "utf8");
+  const { mdSkipped } = await writeArtifacts(root, sourcesWith(tickets, root, id, res.next));
+  return ok(`${id} → ${key}=${val}${res.note}${mdSkipped ? MD_SKIPPED_WARN : ""}`);
 }
 
 async function cmdSnapshot(root: string, specsDir: string): Promise<CliResult> {
@@ -522,11 +582,16 @@ const COHERENCE_CHECK_SCRIPT = `#!/usr/bin/env node
 // Garde de cohérence backlog (INFRA-14 --with-test) : backlog.json doit refléter
 // le frontmatter des specs/*.md. Régénère via l'outil global puis échoue si git
 // voit un diff (à brancher dans la CI / un test de cohérence du projet).
+import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 
 const tool = path.join(os.homedir(), ".claude", "tools", "backlog", "backlog.mjs");
+if (!existsSync(tool)) {
+  console.log("• garde cohérence sautée (bundle global absent — CI ou poste sans l'outil).");
+  process.exit(0);
+}
 execFileSync("node", [tool, "snapshot"], { stdio: "inherit" });
 const diff = execFileSync("git", ["status", "--porcelain", "backlog.json", "specs/backlog.md"], {
   encoding: "utf8",
@@ -628,44 +693,6 @@ async function cmdRenderMd(root: string, specsDir: string): Promise<CliResult> {
     "utf8",
   );
   return ok("specs/backlog.md régénéré.");
-}
-
-/**
- * Réinstalle le bundle dans `~/.claude/tools/backlog/` + y écrit le README global.
- * Source = le `.mjs` en cours d'exécution (`opts.selfPath` = `process.argv[1]`,
- * surchargeable `--source`) ; `--dest` cible un autre dossier (tests). Refuse une
- * source non-`.mjs` (garde anti-`self-update` depuis tsx en dev — copierait du TS).
- */
-const SELF_UPDATE_FLAGS: FlagSpec = { source: "value", dest: "value" };
-
-async function cmdSelfUpdate(
-  args: string[],
-  opts: { selfPath?: string },
-): Promise<CliResult> {
-  // INFRA-33 — le cas « `--source`/`--dest` passé sans valeur » (qui installait le
-  // bundle dans `./true/`) est désormais refusé par parseFlags, plus ici au cas par cas.
-  const parsed = parseFlags(args, SELF_UPDATE_FLAGS);
-  if (!parsed.ok) return err(parsed.error);
-  const { flags } = parsed.value;
-  const source = flags.source ?? opts.selfPath;
-  if (!source) {
-    return err("self-update : aucune source — lance depuis le bundle .mjs ou passe --source <file>.");
-  }
-  if (!source.endsWith(".mjs")) {
-    return err(`self-update : source non-.mjs (${source}) — attendu le bundle backlog.mjs.`);
-  }
-  if (!(await pathExists(source))) {
-    return err(`self-update : source introuvable (${source}).`);
-  }
-  const destDir = flags.dest ?? path.join(os.homedir(), ".claude", "tools", "backlog");
-  await fs.mkdir(destDir, { recursive: true });
-  const destBundle = path.join(destDir, "backlog.mjs");
-  // Copie sautée si la source EST déjà la cible (réinstall depuis le global lui-même).
-  if (path.resolve(source) !== path.resolve(destBundle)) {
-    await fs.copyFile(source, destBundle);
-  }
-  await fs.writeFile(path.join(destDir, "README.md"), ADOPTION_README, "utf8");
-  return ok(`bundle installé → ${destBundle}\nguide → ${path.join(destDir, "README.md")}`);
 }
 
 // ───────────────────────── INFRA-11 (migré INFRA-14) — hook du cycle auto ────
@@ -850,10 +877,27 @@ export async function runBacklogCommand(
         return await cmdRenderMd(root, specsDir);
       case "help":
         return ok(CHEATSHEET);
-      case "self-update":
+      case "self-update": {
+        // BLG-04 (finding 6) — import paresseux, même précédent que
+        // `epic`/`brief` : évite le cycle cli ↔ self-update-cli au chargement.
+        const { cmdSelfUpdate } = await import("./self-update-cli");
         return await cmdSelfUpdate(rest, opts);
+      }
       case "hook":
         return await cmdHook(rest, root);
+      case "escalations": {
+        // BLG-08 — import paresseux (parité brief/epic) : évite le cycle de
+        // chargement cli ↔ escalations-cli, et garde cli.ts sous le seuil des
+        // 800 lignes (CLAUDE.md global) en n'y ajoutant que ce point d'entrée.
+        const { runEscalationsCommand } = await import("./escalations-cli");
+        return await runEscalationsCommand(rest, specsDir);
+      }
+      case "brief": {
+        // INFRA-41 — verbe top-level `brief <ID>` (parité new/set/mature).
+        // Import paresseux (parité épic) : évite le cycle cli ↔ ticket-brief au chargement.
+        const { cmdTicketBrief } = await import("./ticket-brief");
+        return await cmdTicketBrief(rest, root, specsDir);
+      }
       case "epic": {
         // INFRA-12 — sous-commandes épic (lib/backlog/epic-cli). Import paresseux
         // pour éviter le cycle cli ↔ epic-cli au chargement du module.
@@ -864,7 +908,7 @@ export async function runBacklogCommand(
         return {
           code: 2,
           stdout: "",
-          stderr: `commande inconnue : « ${cmd ?? "(aucune)"} » — attendu new|set|mature|snapshot|init|list|render-md|help|self-update|hook|epic`,
+          stderr: `commande inconnue : « ${cmd ?? "(aucune)"} » — attendu new|set|mature|brief|snapshot|init|list|render-md|help|self-update|hook|epic|escalations`,
         };
     }
   } catch (e) {

@@ -23,9 +23,10 @@ git rev-parse --abbrev-ref HEAD
 ## Step 0 — Structural guards
 
 Coherence tests of typed sources (`*-coherence.test.{js,ts}`: generated views ↔
-their sources, migration `.sql` files ↔ `_journal.json`, etc.). Fast (< 5 s),
-no DB nor dev server. Justified exception to the "no tests in /send" rule:
-these tests verify source integrity, not behavior.
+their sources, migration `.sql` files ↔ `_journal.json`, etc.), no DB nor dev
+server. Justified exception to the "no tests in /send" rule by the **nature** of
+these tests, not by their duration: they verify the integrity of typed sources,
+not behavior.
 
 ### Environment preflight (self-repair)
 
@@ -48,15 +49,30 @@ Auto-detection: if at least one file matching
 exists in the project:
 
 ```bash
-npm test -- coherence
+npm test -- coherence --passWithNoTests
 ```
 
 (the **execution** — a distinct vitest filter, by name: it targets every file
 containing `coherence` in its name, whatever the extension → automatically
-extensible to any future structural guard).
+extensible to any future structural guard). Detection and execution remain two
+distinct mechanisms, and they can diverge — a repo where at least one file
+matches the detection glob above may nonetheless **exclude** that same file from
+its own vitest run (its config's `exclude`, deliberately or not): the glob saw it
+on disk, the name filter does not play it. The principle to keep: *no invariant
+evaluated* is not *an invariant violated*. A guard that did not run says nothing
+— neither yes nor no — and an empty selection never becomes proof of incoherence.
+`--passWithNoTests` makes that divergence non-fatal and observable without
+reconciling it: the command now exits on **three** outcomes, never two.
 
-- If the exit code is non-zero: **stop immediately**, display the failed
-  tests, do not continue.
+- **Green** (≥ 1 file played, no failure): continue, display nothing.
+- **Empty selection** (0 files played — `No test files found, exiting with code
+  0`, thanks to the flag): do **not** stop. Display one line that (a) says the
+  structural guards were not evaluated, (b) names the files the glob saw but did
+  not play, (c) attributes the likely cause to an exclusion in the project's
+  runner config — which may be perfectly deliberate. That line is an observation,
+  not a request for confirmation: then continue.
+- **Red** (≥ 1 file played, ≥ 1 failure): **stop immediately**, display the
+  failed tests, do not continue.
 
 Otherwise (no `*-coherence.test.{js,ts}` file): step skipped silently.
 
@@ -124,17 +140,24 @@ because coherence had only run before the rebase.
 
 So, if at least one `__tests__/**/*-coherence.test.{js,ts}` file exists **and**
 the rebase touched `specs/backlog.md` or a typed source (`*.data.ts`,
-`_journal.json`, migrations) — when in doubt, replay it systematically
-(cost < 5 s):
+`_journal.json`, migrations) — when in doubt, replay it systematically: these are
+the same source-integrity tests, with no DB nor dev server, as in Step 0.
 
 ```bash
-npm test -- coherence
+npm test -- coherence --passWithNoTests
 ```
 
-- If the exit code is non-zero: **stop immediately**, display the failed
-  tests. The rebase produced an incoherent state (typically an active/done
-  duplicate) — the user must fix the backlog (remove the stale active entry)
-  then relaunch. **Do not fast-forward into main.**
+Same three-outcome contract as Step 0:
+
+- **Green** (≥ 1 file played, no failure): continue, display nothing.
+- **Empty selection** (0 files played, exit 0 thanks to the flag): do **not**
+  stop — display the same line as in Step 0 (guards not evaluated, files the glob
+  saw and did not play, likely cause: an exclusion in the runner's config). Then
+  continue.
+- **Red** (≥ 1 file played, ≥ 1 failure): **stop immediately**, display the
+  failed tests. The rebase produced an incoherent state (typically an
+  active/done duplicate) — the user must fix the backlog (remove the stale
+  active entry) then relaunch. **Do not fast-forward into main.**
 
 ---
 
@@ -264,6 +287,21 @@ for consistency with `/deploy` and `/fastship`.
   then push again.
 - The `ship` hook always exits 0 (lifecycle-hook tolerance): it must **never**
   block `/send`. No commit if no `merged` ticket is concerned.
+
+---
+
+### Step 4.7 — Push the SDD measurements (best-effort)
+
+Producer side of the SDD measurement contract toward an external consumer. Same
+tolerance as the backlog hook above: this call can **never** fail `/send` — the
+tool always exits 0, whether the config (`SDD_PUSH_URL`/`SDD_PUSH_TOKEN`) is
+missing, the consumer is down, or the network is cut. Guarded by its presence,
+same form as the backlog hook → total no-op if absent:
+
+```bash
+TOOL="$(node -e "console.log(require('path').join(require('os').homedir(),'.claude','tools','sdd-push','push.mjs'))")"
+[ -f "$TOOL" ] && node "$TOOL" || true
+```
 
 ---
 

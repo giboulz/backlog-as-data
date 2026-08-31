@@ -18,8 +18,20 @@ import { GLOBAL_TOOL_CMD } from "./adoption-readme";
 export const GENERATED_SENTINEL =
   "<!-- GÉNÉRÉ (INFRA-10/INFRA-35) — NE PAS ÉDITER À LA MAIN, voir l'en-tête ci-dessous. -->";
 
+// INFRA-38 — reconnaître un backlog.md *généré* par la STRUCTURE de son sentinel
+// (commentaire HTML de tête « GÉNÉRÉ … NE PAS ÉDITER À LA MAIN »), pas par le
+// libellé exact du sentinel courant. INFRA-35 a changé ce libellé (v1 → v2) sans
+// rétro-compat : toute vue générée avant s'est retrouvée non reconnue, donc figée
+// (le verrou D5 refusant de régénérer un fichier qu'il ne reconnaît pas). Le
+// matcher structurel reconnaît v1, v2 et tout reword futur → une vue périmée se
+// ré-tamponne à la mutation suivante au lieu de geler. La prose legacy
+// pré-migration (aucun commentaire de tête) ne matche pas → reste protégée : les
+// deux rôles du verrou (cf. GENERATED_SENTINEL) sont conservés. Ancré `^`, sans
+// flag `s` (borné à la 1re ligne) → pas de backtracking pathologique.
+const GENERATED_SENTINEL_RE = /^<!--\s*GÉNÉRÉ.*NE PAS ÉDITER À LA MAIN/;
+
 export function isGeneratedBacklogMd(raw: string): boolean {
-  return raw.trimStart().startsWith(GENERATED_SENTINEL);
+  return GENERATED_SENTINEL_RE.test(raw.trimStart());
 }
 
 /** Lien relatif à specs/ (où vit backlog.md) depuis le chemin repo du ticket. */
