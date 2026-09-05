@@ -1,0 +1,5 @@
+# Build and test artifacts produced by following Route B / Route C of the README.
+# Nothing here is published: the bundle is built from the source beside it, on
+# purpose (see "What is deliberately not here").
+node_modules/
+dist-backlog/

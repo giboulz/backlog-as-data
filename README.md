@@ -775,7 +775,7 @@ maps to a place you would create rather than to a chapter of this README.
 | [`lib/backlog/`](backlog-cli/lib/backlog/) | The source (TypeScript): frontmatter schema+parser, snapshot projection, markdown renderer, lifecycle hook core, escalation reader, command dispatch |
 | [`scripts/`](backlog-cli/scripts/) | Entry point and the esbuild bundler |
 | [`__tests__/backlog/`](backlog-cli/__tests__/backlog/) | Its twenty tests: parser round-trip, snapshot determinism, hook planning K1–K6, CLI dispatch, escalation parsing. Larger than the source it covers |
-| `package.json`, `tsconfig.json`, `vitest.config.ts` | `npm install && npm run backlog:build` produces the bundle |
+| `package.json`, `package-lock.json`, `tsconfig.json`, `vitest.config.ts` | `npm ci && npm run backlog:build` reproduces the running bundle byte for byte |
 
 One note on running them: `coherence.test.ts` is **excluded from the default
 run**. It is not a test of the CLI but a test a *host* repository owns — it reads
@@ -790,9 +790,11 @@ synthetic pair this README walks through.
 
 ### What is deliberately not here
 
-The **bundle** `backlog.mjs`: the source and the build chain are both published,
-so you build it from what you just read rather than trusting a 677 KB blob that
-would go stale silently. The **metrics corpus** written by `tools/review-log/`:
+The **bundle** `backlog.mjs`: the source, the build chain and the lockfile are
+all published, and building them reproduces the running artifact byte for byte
+(676,831 bytes, checked with `cmp`). Shipping the blob as well would add a file
+that goes stale silently and that nobody reads. The **metrics corpus** written by
+`tools/review-log/`:
 the code is here, the data repository is private. And the system's **own 111
 tickets**: five representative ones are in `examples/`, which is the useful part
 without being an archive of one person's decisions.
@@ -1063,12 +1065,24 @@ views being generated instead of maintained.
 ```bash
 git clone https://github.com/giboulz/backlog-as-data
 cd backlog-as-data/backlog-cli
-npm install
-npm test                       # 20 tests; the model is not taken on trust
+npm ci                         # ci, not install — see below
+npm test                       # 376 tests; the model is not taken on trust
 npm run backlog:build          # → dist-backlog/backlog.mjs
 ```
 
 The bundle is self-contained (esbuild, `zod` inlined, no runtime dependency).
+**Use `npm ci`.** The lockfile is published for a reason: `zod` is a caret
+dependency, and `npm install` resolving it forward changes the bundle by nearly
+200 KB. With the lockfile honoured, the artifact you build is **byte-for-byte
+identical to the one running on the author's machine** — 676,831 bytes, verified
+by `cmp` at the time of this snapshot. That guarantee is why the bundle itself is
+not published: you can produce it, from the source you just read, rather than
+trust a blob.
+
+One honest note on `npm test`: on a cold first run under Windows, one git-backed
+test can exceed its 5-second timeout while `git init` warms up in a temp
+directory. Re-run it; it passes. Everything else is green on the first pass.
+
 Then, **from your project's directory**:
 
 ```bash
@@ -1161,11 +1175,27 @@ purpose: each step is something you should look at before it is in your harness.
    cd ~/.claude && npm install && npm test
    ```
 
-   These 35 tests are the honest way to find out whether your copy is coherent —
+   These 35 files are the honest way to find out whether your copy is coherent —
    they assert the size ceilings, the agent-def coherence, the reviewer spawn
-   shapes, the escalation wiring. **Some will fail**, and that is information,
-   not a defect: several assert paths and ceilings measured on the source system.
-   Read each failure and decide whether to adjust the assertion or your copy.
+   shapes, the escalation wiring. Run against this repository as published, they
+   give **1,491 passing and 22 failing, in 12 files**, and the failures have
+   exactly two causes, both of them consequences of what is deliberately not
+   published:
+
+   - **Tests that read the system's own `specs/*.md`.** Twenty-one of the
+     twenty-two. They assert coherence between a skill and the ticket that
+     introduced a clause — `specs/skill-55.md`, `specs/skill-66.md` and so on.
+     Only five representative tickets are published, in `examples/`. These
+     assertions are **not portable by nature**: they will fail on your machine
+     too, because they are about this author's archive, not about your copy.
+   - **`backlog-bundle-coherence.test.js`**, which asserts that the executing
+     bundle is byte-identical to the committed one. It looks for
+     `tools/backlog/backlog.mjs`, which is not published — see
+     [What is deliberately not here](#what-is-deliberately-not-here). Once you
+     have run step 1, this one has something to compare and passes.
+
+   So: a green run is not the target. **The 23 fully-passing files are**, and any
+   failure outside those two causes is a real problem with your copy.
 
 9. **On Windows, copy `claude-config/.gitattributes` too.** Every line in it is a
    real incident: a CRLF `.mjs` makes Vitest report a false `SyntaxError`, and a
