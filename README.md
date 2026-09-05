@@ -5,15 +5,29 @@ backlog is git data — not a document.**
 
 > **What this is (and is not).** This repo is the extraction of a personal system
 > that runs daily on real projects. It is published as a **reference
-> implementation** — read it, steal ideas from it, adapt pieces of it. It is
-> **not a supported product**: no installer, no roadmap, no issue triage promised.
-> The README explains every concept in English; the CLI source and the skill
-> prompts are published verbatim from the working system (skills translated to
-> English, code comments still in French — the design rationale they carry is
-> covered below).
+> implementation** — read it, steal ideas from it, adapt pieces of it, or run it.
+> It is **not a supported product**: no roadmap, no issue triage promised, and
+> nothing here is versioned for your convenience.
 >
-> **Snapshot taken 2026-08-31.** The system it is extracted from keeps moving;
+> **On installers, precisely.** The CLI has one — `init` bootstraps a project in
+> a single command, and that is [Route B](#route-b--the-cli) below. The
+> *pipeline* (skills, sub-agent manuals, agent definitions, worktree conventions)
+> has none: it is a manual checklist, written out in
+> [Route C](#route-c--the-whole-pipeline). An earlier version of this README said
+> "no installer" flatly. That was half wrong, and it discouraged people from the
+> half that works.
+>
+> **Language.** The README explains every concept in English. The system itself
+> runs in French and is published that way, in [`claude-config/`](claude-config/)
+> and [`backlog-cli/`](backlog-cli/) — those are the files the harness loads and
+> the ones the published tests assert against. English translations of part of it,
+> made for reading, live in [`reading/`](reading/) and are labelled as the copies
+> they are.
+>
+> **Snapshot taken 2026-09-05.** The system it is extracted from keeps moving;
 > this repo is refreshed by hand, in batches, not on every commit.
+>
+> **New here?** Go to [Start here](#start-here-three-routes-in).
 
 ---
 
@@ -34,7 +48,9 @@ published tool combines (see [Comparison](#comparison-with-existing-tools)):
 - **[Maturation with a per-ticket execution triplet](#maturation-dosing-model--effort--review-per-ticket)** —
   deciding to do a ticket and deciding *how hard to think about it* are separate
   acts. Maturing a ticket means fixing `model` / `effort` / `review` **before**
-  any agent runs.
+  any agent runs — and before the triplet is set,
+  [fresh challengers read the spec](#mature-the-batch-is-the-unit-and-a-fresh-challenger-reads-the-spec)
+  without ever seeing the conversation that produced it.
 - **[Lifecycle hooks tied to the git flow](#lifecycle-hooks-tied-to-the-git-flow)** —
   `todo → wip → merged → shipped` is applied by hooks attached to the run /
   integrate / deploy commands, keyed on conventional commits
@@ -215,14 +231,18 @@ Covered above, but three design points are worth stealing on their own:
   grabbing the same number between two syncs) surfaces as an add/add conflict
   at merge, and the LLM resolves it there by renumbering its own ticket.
 
-### Maturing a spec: five checks before a clause gets written
+### Maturing a spec: seven checks before a clause gets written
 
 "Maturing" a ticket covers two different acts that share a name. One is dosing
 the triplet, below. The other is writing the spec — deciding what the ticket
 actually prescribes — and that is where an LLM writing specs fails, in a way that
 turned out to be repetitive enough to write down. The failures all have the same
-shape: **the spec is confident about a repository it did not open.** Five checks,
-applied before a clause is written:
+shape: **the spec is confident about a repository it did not open.**
+
+The checks live in their own file, [`claude-config/rules/maturation.md`](claude-config/rules/maturation.md),
+loaded by path scope rather than copied into the global `CLAUDE.md` — which keeps
+only their seven titles, as a reminder, with a test asserting the two copies say
+the same thing. They apply before a clause is written:
 
 1. **Grep the name, not only the carriers you know about.** Search the whole repo
    for the name of the thing the ticket changes — function, constant, path, a
@@ -247,6 +267,30 @@ applied before a clause is written:
    is actually tracked by git; a path it names exists. In cross-repo work this is
    the normal case, not the edge case: the spec is written from a session open
    somewhere else.
+6. **Never freeze a first-come allocated value.** A ticket id, a port, a
+   migration number — anything another session can take between the moment the
+   spec writes it and the moment someone implements it. The test is exactly
+   that question: *can a parallel session claim this before it is used?* If it
+   can, it is execution data, not spec data, and freezing it is wrong in
+   advance — even where check 5 confirmed it was free at the time of writing.
+7. **A clause stating an observable fact cites how to observe it.** Repository
+   state or third-party behaviour: a list, a regime ("here we do not touch X"),
+   an inventory, a threshold. The fact is observed before the clause is written,
+   and the spec names **the means** — the command for repository state, the doc
+   page of the version in use, or the package's own code for a dependency. The
+   means, not the output, so a later reader can replay it. Bounded to clauses
+   that *observe*; design decisions are not observations and are exempt.
+
+**Closing an escalation feeds this list.** When an escalation was caused by a
+false clause rather than by a disagreement about the product, its closure must
+carry a diagnosis line answering one closed question: **which of the seven checks
+should have caught this?** Two outcomes only — a number from 1 to 7, or `none`.
+And `none` additionally requires opening a ticket against the method itself,
+whose id goes in the same line. That is what separates "the method has a hole"
+from "I did not follow it", two problems with opposite answers. The friction is
+deliberate: an open escalation stays visible in `backlog escalations`, so closing
+one costs more than leaving it — and a closure without a diagnosis is information
+destroyed.
 
 ### Maturation: dosing model / effort / review per ticket
 
@@ -304,6 +348,54 @@ read, strict on write**: a historical ticket carrying `effort: think-hard` still
 loads and is normalized to `high` in the projection, while `mature` refuses to
 *write* a legacy value. So the tickets already on disk were never rewritten —
 and `backlog.json` nonetheless contains only official values.
+[`examples/specs/skill-13.md`](examples/specs/skill-13.md) is one of them, kept
+as an example precisely because it still says `effort: ultrathink`.
+
+### `/mature`: the batch is the unit, and a fresh challenger reads the spec
+
+Everything above describes what maturing *is*. The skill that performs it —
+[`claude-config/commands/mature.md`](claude-config/commands/mature.md) — is
+worth its own section, because two of its design choices were not obvious and
+neither is visible from the CLI verb it eventually calls.
+
+**Its unit is the batch, not the ticket.** Maturation almost never happens alone:
+it happens mid-conversation, over several tickets at once, upstream of a run
+launched somewhere else — "mature the first wave", "ok for the three, mature
+them". A skill whose unit was the single ticket would have been the wrong shape
+for the gesture people actually make.
+
+**It reads the open escalations before it reads its arguments.** Closing an E1
+escalation *is* re-maturing — same method, same gate — so there is one verb and
+not two: the skill lists the escalations itself and switches into arbitration
+without being asked. That is also where the diagnosis line described above gets
+written.
+
+**And before the triplet is dosed, fresh challengers read the specs.** This is
+the review gate's principle moved to planning time, and it turns on one barrier:
+
+> The challenger reads **the spec files** the skill just wrote, and **never the
+> maturation conversation**. You, the orchestrator, have been sold by that
+> conversation. The challenger arrives having been convinced of nothing —
+> exactly like the gate's reviewers, who see the diff and not the reasoning that
+> produced it. Nothing from the conversation crosses: no summary, no
+> justification of the choices, no "where to look".
+
+The number of challengers is **dosed on the batch**, not fixed, on a rule whose
+deterministic half is the batch size and whose semantic half stays the
+orchestrator's read:
+
+| Case | Challengers | Lenses | Trigger |
+|---|---|---|---|
+| 0 | none | — | a batch of 1–2, with no case-2 signal |
+| 1 | 1 | architecture + skeptic, combined | a batch of 3–5, no case-2 signal |
+| 2 | 2 | architecture · skeptic, separately | **any** of: several sub-systems · a schema or data-model change · a gate or external dependency · code previously removed being resurrected |
+| 3 | 3 | architecture · skeptic · **slicing/sequencing** | a batch of ≥ 6 |
+
+The third lens exists for a failure mode the other two miss: the framing is
+right and the **order** is wrong. And case 0 spawns nothing *and writes no
+`## Challenge` section* — an empty section would claim a challenge happened,
+which is the same manufactured evidence as a review register reporting `0
+findings` when nobody looked.
 
 ### Lifecycle hooks tied to the git flow
 
@@ -513,9 +605,10 @@ zeroes is indistinguishable, later, from a review that ran and found nothing.
 
 ## The skill became a program, and it has a size budget
 
-The orchestration skill is around 95 KB of markdown. At that size it is no longer
-prose with a few commands in it — it is a program, and it acquired the two things
-programs need: modules, and a budget.
+The orchestration skill is a little over 100 KB of markdown — its ceiling stands
+at 104,320 bytes as of this snapshot. At that size it is no longer prose with a
+few commands in it — it is a program, and it acquired the two things programs
+need: modules, and a budget.
 
 The modules are split by **who reads them**, which turned out to be the only
 distinction that matters:
@@ -556,10 +649,18 @@ where the intent lives:
   what a modular split alone does *not* give you: without the ceiling, the skill
   could re-absorb every byte that had just been extracted into `prompts/`, by
   plain copy-paste, without a single test moving.
-- The fourth ceiling is on the global `CLAUDE.md`, and it is singled out by its
-  reader too: the harness loads that file on **every** session of **every**
-  project, and injects it into the context of every sub-agent spawned. The other
-  three cost something only inside a cycle. This one costs something always.
+- There are **five** ceilings, and the last two are singled out by their reader
+  rather than by their size. The global `CLAUDE.md` (13,125 bytes) is loaded by
+  the harness on **every** session of **every** project and injected into every
+  sub-agent spawned; `rules/` (9,659) holds the path-scoped rules, the maturation
+  method among them. The first three cost something only inside a cycle. These
+  two cost something always, which is why the method was moved *out* of
+  `CLAUDE.md` into `rules/` and left only its seven titles behind.
+
+The five, as of this snapshot: skill 104,320 · `prompts/` 67,863 · `steps/`
+10,535 · `CLAUDE.md` 13,125 · `rules/` 9,659. They are in
+[`claude-config/__tests__/skill-size-ceiling-coherence.test.js`](claude-config/__tests__/skill-size-ceiling-coherence.test.js),
+where each one carries, in a comment, the dated reason it was last raised.
 
 ## How a ticket flows (end to end)
 
@@ -576,13 +677,19 @@ you+agent  discussion until the need is agreed — requirements elicitation
            happens in chat, not in the spec file
 agent      once agreed, records it:
              backlog new PARSE-07 --priority should      # status: maturing
-           and writes the spec body (design, contracts, test list)
-           from the conversation
-you        "mature it, then run it"
-agent      backlog mature PARSE-07 --model sonnet --effort medium \
-             --review light --date 2026-07-22            # status: todo
-           (the triplet is a maturation decision — the agent asks you
-           for the review dosage rather than choosing in your place)
+you        "mature the wave, then run PARSE-07"
+agent      /mature PARSE-07 …          (the batch is the unit, not the ticket)
+  escalations  read FIRST, before the arguments: an open E1 makes this pass an
+             arbitration, because closing one is re-maturing
+  method     re-reads rules/maturation.md, then writes each spec body —
+             scope, test list, verification — under the seven checks
+  challenge  N fresh challengers, dosed on the batch size, reading ONLY the
+             spec files just written and never this conversation. Their
+             arbitration is written into the spec, not left in the session
+  triplet    backlog mature PARSE-07 --model sonnet --effort medium \
+               --review light --date 2026-07-22          # status: todo
+             (the agent asks you for the review dosage rather than
+             choosing in your place)
            …maturation committed and integrated into main: the implementer's
            worktree forks from main, so an unmerged maturation is invisible
            to it — a preflight guard blocks the launch until it is there
@@ -637,37 +744,62 @@ commit).
 
 ## What's in this repo
 
-| Path | What | State |
-|---|---|---|
-| [`skills/sdd-run-ticket.md`](skills/sdd-run-ticket.md) | The full orchestration skill: preflight, launch, review gate, register, integration | English translation |
-| [`skills/send.md`](skills/send.md) | Integration skill: coherence guards → rebase → fast-forward → `hook merge` (+ `hook ship` on no-deploy projects) | English translation |
-| [`skills/deploy.md`](skills/deploy.md) | Deploy skill: typecheck → migrations check → tests → E2E → `hook ship` → push | English translation |
-| [`skills/backlog.md`](skills/backlog.md) | Conversational wrapper mapping intents to CLI verbs | English translation |
-| [`prompts/`](prompts/) | The **sub-agents'** manuals, which they read themselves: implementer (same-repo and cross-repo), reviewer, aggregator | English translation |
-| [`steps/`](steps/) | Sections of the orchestration skill read **conditionally** by the orchestrator: the cross-repo branch, the `deep` aggregation body | English translation |
-| [`cli/`](cli/) | The CLI source (TypeScript): frontmatter schema+parser, snapshot projection, markdown renderer, lifecycle hook core, escalation reader, command dispatch | Verbatim (French comments) |
-| [`tools/preflight.mjs`](tools/preflight.mjs) | Deterministic preflight resolver used by `/sdd-run-ticket` (ticket lookup, mode, worktree derivation, guards) | Verbatim |
-| [`examples/`](examples/) | A sample ticket file and generated projections | Synthetic |
+**The layout mirrors the two repositories the system lives in**, so a folder here
+maps to a place you would create rather than to a chapter of this README.
+
+### [`claude-config/`](claude-config/) — what lives in `~/.claude`
+
+| Path | What |
+|---|---|
+| [`commands/`](claude-config/commands/) | The twelve skills. `sdd-run-ticket` (orchestration: preflight, launch, review gate, register, integration), `mature` (spec writing, escalation arbitration, challengers, triplet), `send` (integration), `deploy`, `backlog` (conversational wrapper over the CLI verbs), `reflect` (the miner), `improve-skill`, `worktree-clean`, `sync`, `sync-all`, plus two small ones outside the SDD loop |
+| [`prompts/`](claude-config/prompts/) | The **sub-agents'** manuals, which they read themselves: implementer (same-repo and cross-repo), reviewer, aggregator |
+| [`steps/`](claude-config/steps/) | Sections of the orchestration skill read **conditionally** by the orchestrator: the cross-repo branch, the `deep` aggregation body |
+| [`rules/maturation.md`](claude-config/rules/maturation.md) | The seven checks, the escalation-closure diagnosis, the conventional-scope rule, the model scale. Path-scoped, so it loads when a spec is opened |
+| [`agents/`](claude-config/agents/) | The six agent definitions. Five implementer tiers plus the pinned reviewer — **this is what makes `effort` mechanical** rather than a word in a prompt |
+| [`CLAUDE.md`](claude-config/CLAUDE.md) | The doctrine the harness loads on every session of every project |
+| [`claude-md-template.md`](claude-config/claude-md-template.md) | The per-project `CLAUDE.md` template |
+| [`tools/sdd/preflight.mjs`](claude-config/tools/sdd/preflight.mjs) | Deterministic preflight resolver (ticket lookup, mode, worktree derivation, guards) |
+| [`tools/agent-defs/generate.mjs`](claude-config/tools/agent-defs/generate.mjs) | Generates the agent definitions above; a coherence test asserts disk ↔ generator |
+| [`tools/review-log/`](claude-config/tools/review-log/) | The per-cycle measurement writer, and the baseline reader that mined existing transcripts |
+| [`tools/sdd-telemetry/`](claude-config/tools/sdd-telemetry/) | A local OTLP collector for the one quantity no transcript carries: the sub-agents' `cache_read` |
+| [`tools/sdd-push/`](claude-config/tools/sdd-push/) | Pushes the measurements to an external consumer |
+| [`memory/`](claude-config/memory/) | The durable-memory index and the candidate tier's README — the capture half of the retro loop |
+| [`__tests__/`](claude-config/__tests__/) | **35 coherence tests**, 3 helpers, 48 fixtures. The size ceilings, the agent-def coherence, the spawn shapes, the escalation wiring. Every "asserted by a test" claim in this README points here |
+| [`package.json`](claude-config/package.json) | `npm test` — vitest, nothing else |
+| [`.gitattributes`](claude-config/.gitattributes) | Worth reading on its own: every entry is a CRLF incident with its date |
+
+### [`backlog-cli/`](backlog-cli/) — the CLI's own repository
+
+| Path | What |
+|---|---|
+| [`lib/backlog/`](backlog-cli/lib/backlog/) | The source (TypeScript): frontmatter schema+parser, snapshot projection, markdown renderer, lifecycle hook core, escalation reader, command dispatch |
+| [`scripts/`](backlog-cli/scripts/) | Entry point and the esbuild bundler |
+| [`__tests__/backlog/`](backlog-cli/__tests__/backlog/) | Its twenty tests: parser round-trip, snapshot determinism, hook planning K1–K6, CLI dispatch, escalation parsing. Larger than the source it covers |
+| `package.json`, `tsconfig.json`, `vitest.config.ts` | `npm install && npm run backlog:build` produces the bundle |
+
+One note on running them: `coherence.test.ts` is **excluded from the default
+run**. It is not a test of the CLI but a test a *host* repository owns — it reads
+`process.cwd()/specs` and `process.cwd()/backlog.json`, which do not exist here.
+
+### [`reading/`](reading/) and [`examples/`](examples/)
+
+[`reading/`](reading/) holds English translations of part of the system, made for
+reading, with a table stating how stale each one is. [`examples/`](examples/)
+holds five real tickets taken unedited from the system's own backlog, plus the
+synthetic pair this README walks through.
+
+### What is deliberately not here
+
+The **bundle** `backlog.mjs`: the source and the build chain are both published,
+so you build it from what you just read rather than trusting a 677 KB blob that
+would go stale silently. The **metrics corpus** written by `tools/review-log/`:
+the code is here, the data repository is private. And the system's **own 111
+tickets**: five representative ones are in `examples/`, which is the useful part
+without being an archive of one person's decisions.
 
 The split between `prompts/` and `steps/` is the one described in
 [The skill became a program](#the-skill-became-a-program-and-it-has-a-size-budget):
 they are separated by **who reads them**, not by topic.
-
-The skills are Claude Code slash commands (`~/.claude/commands/*.md`); the CLI
-is bundled (esbuild) into a single `backlog.mjs` installed under
-`~/.claude/tools/backlog/` and invoked by the skills through `$HOME` resolution.
-The only runtime dependency of the CLI source is `zod`.
-
-**Where the code actually lives.** When this repo was first extracted, the CLI
-was a folder inside the application project that happened to be its first user,
-and its tests leaned on that project's runner config. It has since moved out
-into its own repository, which is now the canonical source: the bundle at
-`~/.claude/tools/backlog/backlog.mjs` is a build artifact of it, and the copy
-under [`cli/`](cli/) here is an extraction *of that repo*, not of an application.
-The test suite (parser round-trip, snapshot determinism, hook planning K1-K6,
-CLI dispatch, escalation parsing) moved with it and is larger than the source it
-covers; it is not duplicated here, but it is no longer stuck in someone else's
-project either.
 
 ## Scar tissue (incidents that shaped the design)
 
@@ -868,33 +1000,218 @@ What the existing tools do better than this system, for balance: dependency
 graphs and ready-task detection (beads), complexity analysis and task expansion
 (Taskmaster), kanban visualization and multi-agent integrations (Backlog.md).
 
-## Adopting pieces of this
+## Start here: three routes in
 
-Realistically you won't run this system as-is — it's coupled to one person's
-Claude Code setup (global skills, a shared main checkout, specific worktree
-conventions). What transplants well, in increasing order of effort:
+There is no single "install this". There are three routes, and they are genuinely
+different commitments — the first costs an afternoon's discipline, the third
+costs a weekend and a tolerance for reading French. **Pick one and finish it**;
+they stack, so Route C assumes you did Route B.
+
+Below the routes is a fourth thing, orthogonal to all of them: five ideas you can
+steal into whatever you already use, without adopting any of this.
+
+### Route A — the convention
+
+**Cost: about an hour. Dependencies: none.** No code runs. You end up with a
+backlog that is git data, in a shape a person and an agent can both read.
+
+1. Make a `specs/` directory. One markdown file per ticket, ids of the form
+   `SCOPE-NN`.
+2. Give each one this frontmatter. Copy the shape from
+   [`examples/specs/`](examples/specs/) — those are real tickets, not
+   illustrations:
+
+   ```yaml
+   ---
+   id: PARSE-07
+   title: Batch-compute cast rates when null
+   type: ticket
+   status: maturing        # parked · maturing · todo · wip · merged · shipped · wont
+   priority: should        # must · should · could
+   ---
+   ```
+
+3. Adopt the two rules that make it work, and nothing else:
+   - **Status is a field, never a location.** No "Done section". If you want a
+     grouped view, generate it.
+   - **`maturing` is not `parked`.** One means "we will do this, it is not
+     specified yet"; the other means "we have not decided". Conflating them is
+     the failure mode this whole model exists to prevent.
+4. When a ticket is specified enough to run, add the triplet by hand:
+
+   ```yaml
+   exec:
+     model: sonnet
+     effort: medium        # low · medium · high · xhigh · max
+     review: light         # none · light · deep
+     matured: 2026-09-05
+   ```
+
+   You do not need any of this repo's tooling for the triplet to pay off. The
+   value is in **deciding at planning time** what a ticket is worth spending, in
+   writing, versioned next to it.
+
+**You are done when** a ticket's status can only be changed by editing a field,
+and you have stopped moving text between sections of a document.
+
+### Route B — the CLI
+
+**Cost: an afternoon. Dependencies: Node 18+, and Route A's shape.** You end up
+with the mutations being deterministic instead of hand-typed, and the readable
+views being generated instead of maintained.
+
+```bash
+git clone https://github.com/giboulz/backlog-as-data
+cd backlog-as-data/backlog-cli
+npm install
+npm test                       # 20 tests; the model is not taken on trust
+npm run backlog:build          # → dist-backlog/backlog.mjs
+```
+
+The bundle is self-contained (esbuild, `zod` inlined, no runtime dependency).
+Then, **from your project's directory**:
+
+```bash
+node /path/to/backlog-as-data/backlog-cli/dist-backlog/backlog.mjs init
+```
+
+`init` writes `.gitattributes`, an empty `backlog.json`, `specs/`, and prints the
+cheatsheet. That is the whole per-project installation — the data lives in *your*
+project's git, the tool lives once, anywhere.
+
+From there the verbs are `new`, `mature`, `set`, `brief`, `snapshot`, `list`,
+`render-md`, `escalations`, `epic`, `hook`, and `help` reprints them all. Three
+invariants worth knowing before you are surprised by them:
+
+- **The tool never invents a date.** Every verb that writes one takes an explicit
+  `--date YYYY-MM-DD`.
+- **An unknown flag, a valued flag with no value, or a stray positional fails the
+  command.** Nothing is ever silently swallowed or defaulted.
+- **On Git Bash / MSYS (Windows), any argument value starting with `/` is
+  rewritten into a Windows path before the CLI sees it**, and quoting does not
+  help. Prefix `MSYS_NO_PATHCONV=1`. Without it the failure is silent: exit 0,
+  wrong value.
+
+**You are done when** `snapshot` regenerates `backlog.json` and `specs/backlog.md`
+from your spec files, and you have stopped editing either by hand.
+
+### Route C — the whole pipeline
+
+**Cost: a weekend, and it will not be frictionless. Dependencies: Claude Code,
+Route B, and a willingness to read French** — the skills, the sub-agent manuals
+and the method are all in French, because that is what runs and what the tests
+assert. They are prompts for a model, not documentation for you; the model does
+not mind, and this README explains every concept in English.
+
+Everything below is a copy into `~/.claude/`. Nothing here is a script, on
+purpose: each step is something you should look at before it is in your harness.
+
+1. **Put the CLI where the skills look for it.** They resolve it through
+   `$HOME`, so it has to be at exactly this path:
+
+   ```bash
+   node backlog-cli/dist-backlog/backlog.mjs self-update
+   # installs to ~/.claude/tools/backlog/backlog.mjs
+   ```
+
+   If `~/.claude` is itself a git repository — likely, and recommended —
+   `self-update` notices it dirtied the tree, prints a ready-to-run commit
+   command on stderr, and exits **3**. That is neither success nor failure: a
+   gesture is left for you.
+
+2. **Copy the skills**: `claude-config/commands/*.md` → `~/.claude/commands/`.
+   They become `/sdd-run-ticket`, `/mature`, `/send`, `/deploy`, `/backlog`,
+   `/reflect`, `/improve-skill`, `/worktree-clean`, `/sync`, `/sync-all`.
+
+3. **Copy what the agents read**: `claude-config/prompts/`,
+   `claude-config/steps/`, `claude-config/rules/` → `~/.claude/`. Keep the
+   directory names — the skills point at them by path, and `rules/` is loaded by
+   path scope when a spec file is opened.
+
+4. **Install the agent definitions.** This is the step people skip, and skipping
+   it silently costs you the `effort` axis: without them the reasoning tier is a
+   word in a prompt and nothing more.
+
+   ```bash
+   cp -r claude-config/agents ~/.claude/agents
+   # or regenerate them, which is the same thing:
+   cp claude-config/tools/agent-defs/generate.mjs ~/.claude/tools/agent-defs/
+   node ~/.claude/tools/agent-defs/generate.mjs      # writes ~/.claude/agents/
+   ```
+
+5. **Copy the preflight resolver**: `claude-config/tools/sdd/preflight.mjs` →
+   `~/.claude/tools/sdd/`. `/sdd-run-ticket` calls it for every guard; without it
+   the skill has no deterministic half.
+
+6. **Take the doctrine, then cut it.** `claude-config/CLAUDE.md` →
+   `~/.claude/CLAUDE.md`. **Read it first and delete what is not yours** — it
+   names conventions (a changelog file, Drizzle migrations, specific scopes) that
+   belong to one person's projects. What you want from it is the backlog
+   doctrine, the ticket-id ownership rule, and the test rules.
+
+7. **Optional: the measurement chain.** `tools/review-log/`,
+   `tools/sdd-telemetry/`, `tools/sdd-push/` → `~/.claude/tools/`. They write to a
+   separate data repository whose path they derive; the corpus itself is not
+   published. Skip this until the rest works.
+
+8. **Install the guards, and use them as your acceptance test:**
+
+   ```bash
+   cp -r claude-config/__tests__ claude-config/package.json ~/.claude/
+   cd ~/.claude && npm install && npm test
+   ```
+
+   These 35 tests are the honest way to find out whether your copy is coherent —
+   they assert the size ceilings, the agent-def coherence, the reviewer spawn
+   shapes, the escalation wiring. **Some will fail**, and that is information,
+   not a defect: several assert paths and ceilings measured on the source system.
+   Read each failure and decide whether to adjust the assertion or your copy.
+
+9. **On Windows, copy `claude-config/.gitattributes` too.** Every line in it is a
+   real incident: a CRLF `.mjs` makes Vitest report a false `SyntaxError`, and a
+   CRLF markdown file moves a byte ceiling without a single word changing.
+
+**What will not transplant, and you should know before starting.** The worktree
+conventions are assumed everywhere: a shared `main` checkout, one worktree per
+conversation, integration by fast-forward. The skills expect `$HOME/.claude` to
+be a git repository they can commit into. And the whole thing assumes you are the
+only human in the loop — there is no multi-user story, no locking beyond git's,
+and the id-allocation race is resolved by a merge conflict and an LLM renaming
+its own ticket.
+
+**You are done when** `/sdd-run-ticket` on a matured ticket spawns an implementer
+at the model and effort its frontmatter names, and you can prove it: the
+sub-agent's report opens with `Model used: …`, and the commit it produced is on
+`main` before anything says the ticket is merged.
+
+### Or: steal one idea and leave the rest
+
+These transplant into any setup, including one with no backlog model at all,
+roughly in increasing order of effort:
 
 1. **The state model** — status as a field, the two orthogonal axes, the
-   `maturing ≠ parked` rule. Costs a convention, pays immediately.
-2. **The maturation triplet** — even hand-written in frontmatter with no CLI,
-   deciding model/effort/review at planning time changes how you spend agent
-   budget.
-3. **A byte ceiling on your prompt files, asserted by a test.** Almost free to
-   implement — one assertion per file family — and it forbids nothing: it just
-   turns silent prompt-bloat into a one-line edit that shows up in a diff. If
-   you are not going to adopt a backlog model at all, this is still worth taking.
-4. **The review-gate prompt patterns** — fresh-context reviewers, findings-only
-   format with mandatory concrete scenario, E1/E2/E3 triage, the register, the
-   blind aggregator at `deep`. The orchestration is in
-   [`skills/sdd-run-ticket.md`](skills/sdd-run-ticket.md), the sub-agents'
-   manuals — including the four review axes — in [`prompts/`](prompts/), and all
-   of it is portable to any harness with sub-agents.
-5. **The candidate → mine → route loop**, if you keep any kind of durable notes
-   on how you work. The cheap half is the capture tier and the `n ≥ 2` threshold;
-   the expensive half is the discipline of routing to a home that already exists
+   `maturing ≠ parked` rule. Costs a convention, pays immediately. (Route A is
+   exactly this and nothing else.)
+2. **The maturation triplet** — even hand-written with no CLI, deciding
+   model/effort/review at planning time changes how you spend agent budget.
+3. **A byte ceiling on your prompt files, asserted by a test.** Almost free —
+   one assertion per file family — and it forbids nothing: it turns silent
+   prompt-bloat into a one-line edit that shows up in a diff. If you adopt
+   nothing else here, adopt this.
+4. **The fresh-context reviewer patterns** — reviewers who see the diff and not
+   the reasoning, findings-only format with a mandatory concrete scenario, E1/E2/E3
+   triage, the register, the blind aggregator at `deep`, and the same barrier
+   applied *before* the code exists in
+   [`/mature`'s challengers](#mature-the-batch-is-the-unit-and-a-fresh-challenger-reads-the-spec).
+   The orchestration is in
+   [`claude-config/commands/sdd-run-ticket.md`](claude-config/commands/sdd-run-ticket.md)
+   (English in [`reading/`](reading/skills/sdd-run-ticket.md)), the sub-agents'
+   manuals in [`claude-config/prompts/`](claude-config/prompts/), and all of it
+   is portable to any harness with sub-agents.
+5. **The candidate → mine → route loop**, if you keep any durable notes on how
+   you work. The cheap half is the capture tier and the `n ≥ 2` threshold; the
+   expensive half is the discipline of routing to a home that already exists
    instead of writing a new rule.
-6. **The CLI + hooks** — needs adaptation (paths, bundling, your integration
-   commands), but the core is ~3,900 lines of TypeScript with one dependency.
 
 ## License
 
