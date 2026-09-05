@@ -1,13 +1,34 @@
-# CLI source (verbatim)
+# backlog-cli (verbatim)
 
-This folder is the **verbatim** TypeScript source of the backlog CLI, extracted
-from its own repository's `lib/backlog/`. Comments are in French — the design
-rationale they carry is covered in English in the [root README](../README.md).
+This folder mirrors the CLI's **own repository**: source, build chain, lockfile
+and test suite, verbatim. Comments are in French — the design rationale they
+carry is covered in English in the [root README](../README.md).
 
-(The first extraction took this code out of the application project that was its
-first user. The CLI has since been split into a standalone repository, which is
-now the canonical source — the bundle at `~/.claude/tools/backlog/backlog.mjs` is
-one of its build artifacts, and this folder is a copy of it.)
+```bash
+npm ci                    # ci, not install: zod is a caret dependency
+npm test                  # 376 tests
+npm run backlog:build     # → dist-backlog/backlog.mjs
+```
+
+**The build is reproducible.** With the published lockfile honoured, the bundle
+comes out byte-for-byte identical to the one running on the author's machine —
+676,831 bytes, checked with `cmp` at the time of the snapshot. That is why the
+bundle itself is not published: you can produce it from the source next to you.
+Resolving `zod` forward with `npm install` instead adds nearly 200 KB, silently.
+
+Two notes on running the tests. On a cold first run under Windows, one git-backed
+test can exceed its 5-second timeout while `git init` warms up in a temp
+directory; re-run it. And `__tests__/backlog/coherence.test.ts` is **excluded
+from the default run** by `vitest.config.ts` — it is not a test of the CLI but
+one a *host* repository owns, reading `process.cwd()/specs` and
+`process.cwd()/backlog.json`, which do not exist here.
+
+(History, because the code comments refer to it: this CLI was first a folder
+inside the application project that happened to be its first user, and its tests
+leaned on that project's runner config. It has since been split into a standalone
+repository, which is now the canonical source and what this folder mirrors.)
+
+The source, file by file — all of it under [`lib/backlog/`](lib/backlog/):
 
 | File | Role |
 |---|---|
@@ -24,10 +45,12 @@ one of its build artifacts, and this folder is a copy of it.)
 | `self-update-cli.ts`, `self-update-report.ts` | Reinstalls the bundle, and reports the repository it just dirtied — a ready-to-run commit command and a distinct exit code, so a silent install cannot go unnoticed |
 | `epic-*.ts` | Epic-level counterpart (a second frontmatter store for epics, projected to `epics.json`) — included for completeness, not discussed in the writeup |
 
-Build note: in the source system this compiles with `tsc` (strict) and is
-bundled by esbuild into a single self-contained `backlog.mjs`, installed once
-at `~/.claude/tools/backlog/` (`self-update` verb). Only runtime dependency:
-`zod`. The test suite (parser round-trip, snapshot determinism, hook planning
-K1-K6, CLI dispatch, escalation parsing, plus the coherence tests that run in the
-`/send` guard) lives alongside the source in that repository and is larger than
-the code it covers; it is not extracted here.
+Build note: this compiles with `tsc` (strict) and is bundled by esbuild into a
+single self-contained `backlog.mjs`, installed once at `~/.claude/tools/backlog/`
+by the `self-update` verb. Only runtime dependency: `zod`, inlined into the
+bundle.
+
+The test suite is in [`__tests__/backlog/`](__tests__/backlog/) — parser
+round-trip, snapshot determinism, hook planning K1–K6, CLI dispatch, escalation
+parsing, plus the host-owned coherence test that runs in the `/send` guard. It is
+larger than the code it covers, which is the point.
