@@ -1,0 +1,44 @@
+{
+  "_comment": [
+    "SKILL-78 — charge SYNTHÉTIQUE hostile mais JSON-valide : chaque point porte un",
+    "défaut qui le rend INEXPLOITABLE. Contrat (§ Tests) : rien n'est écrit, et le",
+    "collecteur ne jette pas.",
+    "  1. aucun attribut du tout — ni `type`, ni `query_source` ;",
+    "  2. `value` non numérique (`asInt` = \"abc\") ;",
+    "  3. `attributes` d'une forme inattendue (chaîne au lieu de KeyValue[]) ;",
+    "  4. une métrique sans `dataPoints` du tout."
+  ],
+  "resourceMetrics": [
+    {
+      "scopeMetrics": [
+        {
+          "metrics": [
+            {
+              "name": "claude_code.token.usage",
+              "sum": {
+                "dataPoints": [
+                  { "timeUnixNano": "1756000010000000000", "asInt": "7" },
+                  {
+                    "timeUnixNano": "1756000010000000000",
+                    "asInt": "abc",
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-captured-001" } },
+                      { "key": "type", "value": { "stringValue": "cacheRead" } },
+                      { "key": "query_source", "value": { "stringValue": "subagent" } }
+                    ]
+                  },
+                  {
+                    "timeUnixNano": "1756000010000000000",
+                    "asInt": "13",
+                    "attributes": "pas-un-tableau"
+                  }
+                ]
+              }
+            },
+            { "name": "claude_code.token.usage" }
+          ]
+        }
+      ]
+    }
+  ]
+}

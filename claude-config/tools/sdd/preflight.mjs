@@ -199,47 +199,123 @@ function gitWorktreeRoots(targetRoot) {
 }
 
 // Une valeur de slug est INUTILISABLE (→ règle suivante de repoSlug) si vide,
-// `.`, `..`, ou si elle contient un séparateur de chemin.
+// `.`, `..`, ou si elle contient au moins un caractère interdit dans un
+// composant de chemin Windows (D2, specs/skill-107.md — amende
+// specs/skill-85.md § D1) : les neuf caractères réservés (`/ \ : * ? " < > |`)
+// plus les caractères de contrôle U+0000–U+001F. Liste NOIRE, pas blanche : un
+// slug hors ASCII (`comptabilité`) reste usable, seul ce qui rendrait le
+// composant non créable est rejeté (mesuré, § Symptôme, specs/skill-107.md).
+// ⚠️ Les noms de périphérique réservés (`NUL`…) et le point/espace final sont
+// volontairement HORS de ce prédicat : le composant créé est toujours
+// `<slug>-wt`, jamais `<slug>` nu (§ Hors-scope, specs/skill-107.md).
+const SLUG_CHARS_INTERDITS = /[\\/:*?"<>|\u0000-\u001f]/;
 function isUsableSlug(s) {
-  return Boolean(s) && s !== '.' && s !== '..' && !/[\\/]/.test(s);
+  return Boolean(s) && s !== '.' && s !== '..' && !SLUG_CHARS_INTERDITS.test(s);
+}
+
+// gitCwd(root) → la valeur à passer à `git -C` pour une racine logique
+// donnée (D1, specs/skill-106.md). PROMU depuis `repoSlug` (deuxième appelant
+// réel : le constat de référence de `branchFree` ci-dessous), pour porter les
+// DEUX gestes de normalisation en un seul endroit :
+//
+// 1. `toPosixPath(root)` — le binaire git natif ne traduit PAS une racine
+//    MSYS (`/c/…`) : sans elle, `-C` échoue et l'appelant retombe
+//    SILENCIEUSEMENT sur un repli (finding de revue SKILL-44, repris en revue
+//    SKILL-85).
+// 2. Un lecteur NU (`c:`, sans slash final) n'est PAS la racine du lecteur
+//    pour `-C` : Windows le lit comme « répertoire courant sur ce lecteur »,
+//    c'est-à-dire le cwd du process — mesuré : `git -C c: rev-parse
+//    --show-toplevel` rend le dépôt du process courant, PAS une erreur
+//    « not a git repository ». `toPosixPath` strippant le slash final
+//    (`C:/` → `C:`), un lecteur nu qu'elle produit est reforcé en racine
+//    explicite avant l'appel `-C`.
+//
+// ⚠️ Recopier le seul geste 1 (ce que faisait `repoSlug` avant sa promotion)
+// calculerait un `branchFree` sur le dépôt de la SESSION au lieu de la cible
+// sur un lecteur nu — un garde-fou vacué en silence, exactement ce que
+// specs/skill-106.md existe pour supprimer.
+function gitCwd(root) {
+  const nativeRoot = toPosixPath(root);
+  return /^[A-Za-z]:$/.test(nativeRoot) ? nativeRoot + '/' : nativeRoot;
 }
 
 // repoSlug(targetRoot) → le nom qui identifie le dépôt cible, résolu par une
-// chaîne DÉTERMINISTE de 3 règles (D1, specs/skill-85.md), la première qui
-// rend une valeur utilisable gagne :
-//   1. dernier segment de `git remote get-url origin` (suffixe .git retiré)
+// chaîne DÉTERMINISTE de 3 règles (D1, specs/skill-85.md ; amendée par
+// [[SKILL-107]] — voir specs/skill-107.md § D1/D2), la première qui rend une
+// valeur utilisable gagne :
+//   1. dernier segment de `git remote get-url origin` (suffixe .git retiré) ;
+//      si ce segment contient encore un `:` (forme scp plate, ex.
+//      `git@hôte:dépôt.git`, sans `/`), ne garder que ce qui SUIT ce `:`.
+//      ⚠️ Le découpage sur `/` reste la primaire, la passe `:` la seconde —
+//      mais leur ORDRE n'est pas ce qui protège `ssh://…:<port>/…` : les deux
+//      passes sont commutatives dès lors que CHACUNE isole son propre dernier
+//      segment (mesuré, finding de revue SKILL-107 — une simple inversion des
+//      deux passes ne rougit aucun test). Ce qui casserait le régime `ssh` est
+//      de REMPLACER le découpage sur `/` par un découpage sur `:` (une seule
+//      passe, l'autre jamais appliquée) : le `:` du port précéderait alors le
+//      chemin dans le segment retenu. `/` reste donc la primaire par
+//      construction du format d'URL (chemin après hôte), pas par un ordre de
+//      passes à préserver.
 //   2. basename(targetRoot), points de tête retirés
 //   3. 'repo', défaut de dernier recours
 //
-// ⚠️ `targetRoot` est passé à `git -C` sous sa forme `toPosixPath` — comme
-// `gitCommonDir` ci-dessus et pour la même raison (finding de revue SKILL-44,
-// repris en revue SKILL-85) : le binaire git natif ne traduit PAS une racine
-// MSYS (`/c/…`), et sans cette normalisation `-C` échoue puis on retombe
-// SILENCIEUSEMENT sur la règle 2, orphelinant la non-régression D1.
-//
-// ⚠️ Un lecteur NU (`c:`, sans slash final) n'est PAS la racine du lecteur
-// pour `-C` : Windows le lit comme « répertoire courant sur ce lecteur »,
-// c'est-à-dire le cwd du process — mesuré : `git -C c: rev-parse
-// --show-toplevel` rend le dépôt du process courant, PAS une erreur
-// « not a git repository ». `toPosixPath` strippant le slash final
-// (`C:/` → `C:`), un lecteur nu qu'elle produit est reforcé en racine
-// explicite avant l'appel `-C` — sans y toucher pour `path.basename`, où
-// `c:` et `c:/` sont équivalents (`''` dans les deux cas).
+// ⚠️ `targetRoot` est passé à `git -C` via `gitCwd` ci-dessus, pas recopié en
+// ligne (SKILL-106) : c'est le même geste que pour le constat de référence de
+// `branchFree`, et il ne calcule STRICTEMENT rien d'autre qu'avant (D1,
+// specs/skill-106.md — « sans changer d'un caractère ce que `repoSlug`
+// calcule »).
 function repoSlug(targetRoot) {
   const nativeRoot = toPosixPath(targetRoot);
-  const gitCwd = /^[A-Za-z]:$/.test(nativeRoot) ? nativeRoot + '/' : nativeRoot;
-  const r = spawnSync('git', ['-C', gitCwd, 'remote', 'get-url', 'origin'], {
+  const r = spawnSync('git', ['-C', gitCwd(targetRoot), 'remote', 'get-url', 'origin'], {
     encoding: 'utf8',
   });
   if (!r.error && r.status === 0) {
     const url = (r.stdout || '').trim();
-    const last = url.split('/').filter(Boolean).pop() || '';
+    let last = url.split('/').filter(Boolean).pop() || '';
+    const colonIdx = last.lastIndexOf(':');
+    if (colonIdx !== -1) last = last.slice(colonIdx + 1);
     const slug = last.replace(/\.git$/, '');
     if (isUsableSlug(slug)) return slug;
   }
   const base = path.basename(nativeRoot).replace(/^\.+/, '');
   if (isUsableSlug(base)) return base;
   return 'repo';
+}
+
+// refConflicts(ref, branch) → `ref` (une ligne `refs/heads/…`) entre-t-il en
+// CONFLIT avec `refs/heads/<branch>`, au sens du modèle de références de git
+// (§ Correction attendue, D1, specs/skill-106.md) ? Trois cas : homonyme
+// exact, `ref` préfixe de répertoire de la cible (conflit D/F mesuré :
+// `refs/heads/claude` nue bloque `refs/heads/claude/foo-01`), ou la cible
+// préfixe de répertoire de `ref` (symétrique, qu'aucun id de ticket ne
+// produit aujourd'hui — pas de `/` dans un id — mais couvert sans coût).
+function refConflicts(ref, branch) {
+  const target = 'refs/heads/' + branch;
+  if (ref === target) return true;
+  if (ref.startsWith(target + '/')) return true;
+  if (target.startsWith(ref + '/')) return true;
+  return false;
+}
+
+// branchIsCreatable(targetRoot, branch) → `refs/heads/<branch>` est-elle
+// CRÉABLE dans `targetRoot` — pas seulement absente (§ Cause racine,
+// specs/skill-106.md) ? Constatée sur l'INVENTAIRE des têtes
+// (`for-each-ref`), jamais sur `rev-parse --verify` de la seule branche : ce
+// dernier sortirait `1` (« absente ») sur le conflit D/F alors que la
+// création est impossible.
+//
+// Sortie en code non nul (dépôt illisible) → `true` : le garde-fou ne
+// fabrique pas de refus sur un échec d'outillage — `--repo` a déjà validé la
+// cible avant que ce constat ne soit appelé.
+function branchIsCreatable(targetRoot, branch) {
+  const r = spawnSync(
+    'git',
+    ['-C', gitCwd(targetRoot), 'for-each-ref', '--format=%(refname)', 'refs/heads/'],
+    { encoding: 'utf8' }
+  );
+  if (r.status !== 0 || typeof r.stdout !== 'string') return true;
+  const refs = r.stdout.split(/\r?\n/).filter(Boolean);
+  return !refs.some((ref) => refConflicts(ref, branch));
 }
 
 // deriveWorktreePath(targetRoot, id) → {worktreePath, branch, underTarget}
@@ -454,12 +530,17 @@ function mainResolve(args) {
   let branch = null;
   let worktreeUnderTarget = false;
   let worktreePathFree = true;
+  // branchFree : `true` en same-repo, SANS appel git — même régime que
+  // worktreePathFree/worktreeUnderTarget dans ce mode (D1, specs/skill-106.md).
+  // `branch` y vaut `null` : il n'y a pas de branche dérivée à interroger.
+  let branchFree = true;
   if (mode === 'cross-repo') {
     const d = deriveWorktreePath(targetRoot, id);
     worktreePath = d.worktreePath;
     branch = d.branch;
     worktreeUnderTarget = d.underTarget;
     worktreePathFree = !fs.existsSync(worktreePath);
+    branchFree = branchIsCreatable(targetRoot, branch);
   }
 
   const specPath = info.file;
@@ -483,6 +564,7 @@ function mainResolve(args) {
       statusGate: statusGate(info.status),
       worktreePathFree,
       worktreeUnderTarget,
+      branchFree,
     },
   };
   return { code: 0, stdout: JSON.stringify(out, null, 2) + '\n' };

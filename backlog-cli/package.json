@@ -1,0 +1,24 @@
+{
+  "name": "backlog-cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Backlog-as-data CLI — tickets = frontmatter specs/*.md, hooks, snapshot. Extracted from whereismycard.",
+  "scripts": {
+    "backlog": "tsx scripts/backlog.ts",
+    "backlog:hook": "tsx scripts/backlog-hook.ts",
+    "backlog:build": "node scripts/build-backlog.mjs",
+    "backlog:install": "npm run backlog:build && node dist-backlog/backlog.mjs self-update",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "0.25.12",
+    "tsx": "^4.20.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.0.0"
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "_comment": [
+    "SKILL-78 — charge SYNTHÉTIQUE dont le point est EXPLOITABLE (valeur numérique,",
+    "`type` et `query_source` présents) mais dont le `session.id` est une traversée de",
+    "chemin. Le collecteur écoute sur une socket : un `session.id` ne doit JAMAIS",
+    "devenir un nom de fichier sans être validé.",
+    "Contrat : le point part au seau NON ATTRIBUÉ (il n'est pas perdu en silence —",
+    "une absence n'est jamais un zéro), l'identifiant brut est conservé DANS le JSON,",
+    "et aucun chemin n'est écrit hors de `~/sdd-metrics/telemetry/`."
+  ],
+  "resourceMetrics": [
+    {
+      "scopeMetrics": [
+        {
+          "metrics": [
+            {
+              "name": "claude_code.token.usage",
+              "sum": {
+                "dataPoints": [
+                  {
+                    "timeUnixNano": "1756000010000000000",
+                    "asInt": "9",
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "../../evil" } },
+                      { "key": "type", "value": { "stringValue": "cacheRead" } },
+                      { "key": "query_source", "value": { "stringValue": "subagent" } }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,113 @@
+{
+  "_comment": [
+    "SKILL-78 — charge OTLP SYNTHÉTIQUE mêlant ce qui doit rester SÉPARÉ :",
+    "  - `query_source` main / auxiliary / subagent (⛔ jamais fondus, § Tests) ;",
+    "  - deux `agent.name` distincts + un point SANS `agent.name` ;",
+    "  - une autre métrique (`claude_code.session.count`) à ignorer sans erreur ;",
+    "  - une seconde session, pour vérifier la ventilation par `session.id` ;",
+    "  - des attributs d'identité FICTIFS (`user.email`, `organization.id`) : valeurs",
+    "    inventées, jamais capturées — ils servent à vérifier que le collecteur les",
+    "    JETTE au lieu de les écrire dans `~/sdd-metrics` (D4)."
+  ],
+  "resourceMetrics": [
+    {
+      "resource": {
+        "attributes": [
+          { "key": "service.name", "value": { "stringValue": "claude-code" } },
+          { "key": "organization.id", "value": { "stringValue": "00000000-0000-0000-0000-000000000000" } }
+        ]
+      },
+      "scopeMetrics": [
+        {
+          "scope": { "name": "com.anthropic.claude_code" },
+          "metrics": [
+            {
+              "name": "claude_code.token.usage",
+              "sum": {
+                "aggregationTemporality": 1,
+                "isMonotonic": true,
+                "dataPoints": [
+                  {
+                    "timeUnixNano": "1756000010000000000",
+                    "asInt": "5000",
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-captured-001" } },
+                      { "key": "type", "value": { "stringValue": "cacheRead" } },
+                      { "key": "query_source", "value": { "stringValue": "main" } },
+                      { "key": "user.email", "value": { "stringValue": "personne@example.invalid" } },
+                      { "key": "terminal.type", "value": { "stringValue": "vscode" } }
+                    ]
+                  },
+                  {
+                    "timeUnixNano": "1756000010000000000",
+                    "asInt": "40",
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-captured-001" } },
+                      { "key": "type", "value": { "stringValue": "cacheRead" } },
+                      { "key": "query_source", "value": { "stringValue": "auxiliary" } }
+                    ]
+                  },
+                  {
+                    "timeUnixNano": "1756000010000000000",
+                    "asInt": "700",
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-captured-001" } },
+                      { "key": "type", "value": { "stringValue": "cacheRead" } },
+                      { "key": "query_source", "value": { "stringValue": "subagent" } },
+                      { "key": "agent.name", "value": { "stringValue": "sdd-reviewer" } }
+                    ]
+                  },
+                  {
+                    "timeUnixNano": "1756000010000000000",
+                    "asInt": "300",
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-captured-001" } },
+                      { "key": "type", "value": { "stringValue": "cacheRead" } },
+                      { "key": "query_source", "value": { "stringValue": "subagent" } },
+                      { "key": "agent.name", "value": { "stringValue": "custom" } }
+                    ]
+                  },
+                  {
+                    "timeUnixNano": "1756000010000000000",
+                    "asInt": "11",
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-captured-001" } },
+                      { "key": "type", "value": { "stringValue": "cacheCreation" } },
+                      { "key": "query_source", "value": { "stringValue": "subagent" } }
+                    ]
+                  },
+                  {
+                    "timeUnixNano": "1756000010000000000",
+                    "asInt": "42",
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-captured-002" } },
+                      { "key": "type", "value": { "stringValue": "cacheRead" } },
+                      { "key": "query_source", "value": { "stringValue": "subagent" } },
+                      { "key": "agent.name", "value": { "stringValue": "custom" } }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "claude_code.session.count",
+              "sum": {
+                "aggregationTemporality": 1,
+                "isMonotonic": true,
+                "dataPoints": [
+                  {
+                    "timeUnixNano": "1756000010000000000",
+                    "asInt": "1",
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-captured-001" } }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

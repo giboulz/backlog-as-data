@@ -1,0 +1,6 @@
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-08-02T12:31:29.196Z","sessionId":"s","content":"contexte initial"}
+{"type":"attachment","attachment":{"type":"ultrathink_effort"},"timestamp":"2026-08-02T12:31:29.200Z"}
+{"type":"user","timestamp":"2026-08-02T12:31:30.000Z","message":{"role":"user","content":"Bonjour"}}
+{"type":"assistant","timestamp":"2026-08-02T12:31:35.000Z","message":{"role":"assistant","id":"msg_noise_1","content":[{"type":"text","text":"Bonjour !"}],"usage":{"input_tokens":1,"output_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
+{"type":"last-prompt","lastPrompt":"Bonjour","sessionId":"s"}
+{"type":"custom-title","customTitle":"Session de test","sessionId":"s"}

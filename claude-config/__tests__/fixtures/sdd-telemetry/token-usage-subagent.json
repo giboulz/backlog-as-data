@@ -1,0 +1,83 @@
+{
+  "_comment": [
+    "SKILL-78 — charge OTLP http/json SYNTHÉTIQUE (jamais une capture réelle : une",
+    "capture porterait `user.email` et `organization.id` dans un dépôt suivi par git,",
+    "cf. specs/skill-78.md § Portée).",
+    "Forme : ExportMetricsServiceRequest, mapping JSON protobuf (camelCase, int64 en",
+    "chaîne). Un seul `claude_code.token.usage`, query_source `subagent`, quatre types."
+  ],
+  "resourceMetrics": [
+    {
+      "resource": {
+        "attributes": [
+          { "key": "service.name", "value": { "stringValue": "claude-code" } }
+        ]
+      },
+      "scopeMetrics": [
+        {
+          "scope": { "name": "com.anthropic.claude_code" },
+          "metrics": [
+            {
+              "name": "claude_code.token.usage",
+              "unit": "tokens",
+              "sum": {
+                "aggregationTemporality": 1,
+                "isMonotonic": true,
+                "dataPoints": [
+                  {
+                    "startTimeUnixNano": "1756000000000000000",
+                    "timeUnixNano": "1756000010000000000",
+                    "asInt": "100",
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-captured-001" } },
+                      { "key": "type", "value": { "stringValue": "cacheRead" } },
+                      { "key": "query_source", "value": { "stringValue": "subagent" } },
+                      { "key": "agent.name", "value": { "stringValue": "custom" } },
+                      { "key": "model", "value": { "stringValue": "claude-opus-5" } }
+                    ]
+                  },
+                  {
+                    "startTimeUnixNano": "1756000000000000000",
+                    "timeUnixNano": "1756000010000000000",
+                    "asInt": "20",
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-captured-001" } },
+                      { "key": "type", "value": { "stringValue": "cacheCreation" } },
+                      { "key": "query_source", "value": { "stringValue": "subagent" } },
+                      { "key": "agent.name", "value": { "stringValue": "custom" } },
+                      { "key": "model", "value": { "stringValue": "claude-opus-5" } }
+                    ]
+                  },
+                  {
+                    "startTimeUnixNano": "1756000000000000000",
+                    "timeUnixNano": "1756000010000000000",
+                    "asInt": "5",
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-captured-001" } },
+                      { "key": "type", "value": { "stringValue": "input" } },
+                      { "key": "query_source", "value": { "stringValue": "subagent" } },
+                      { "key": "agent.name", "value": { "stringValue": "custom" } },
+                      { "key": "model", "value": { "stringValue": "claude-opus-5" } }
+                    ]
+                  },
+                  {
+                    "startTimeUnixNano": "1756000000000000000",
+                    "timeUnixNano": "1756000010000000000",
+                    "asDouble": 3,
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-captured-001" } },
+                      { "key": "type", "value": { "stringValue": "output" } },
+                      { "key": "query_source", "value": { "stringValue": "subagent" } },
+                      { "key": "agent.name", "value": { "stringValue": "custom" } },
+                      { "key": "model", "value": { "stringValue": "claude-opus-5" } }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

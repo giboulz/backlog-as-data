@@ -1,0 +1,62 @@
+backlog.json text eol=lf
+# SKILL-14 : Vite/Vitest (import ESM d'un .mjs) rapporte une fausse
+# SyntaxError sur ce fichier quand il est CRLF (vérifié en réel, cf. rapport
+# du ticket) — LF forcé pour que `npm test` reste vert après un checkout
+# avec core.autocrlf=true (la convention Windows de ce repo).
+tools/sdd/preflight.mjs text eol=lf
+# SKILL-22 : même verrou CRLF que preflight.mjs — un .mjs CRLF fait rapporter à
+# Vitest une fausse SyntaxError à l'import ESM. Et les agent-defs sont des
+# artefacts générés en LF : les figer eol=lf garde la cohérence disque↔générateur
+# (__tests__/agent-defs-coherence.test.js) stable après un checkout autocrlf.
+tools/agent-defs/generate.mjs text eol=lf
+agents/sdd-impl-low.md text eol=lf
+agents/sdd-impl-medium.md text eol=lf
+agents/sdd-impl-high.md text eol=lf
+agents/sdd-impl-xhigh.md text eol=lf
+agents/sdd-impl-max.md text eol=lf
+# SKILL-23 : même verrou CRLF que ci-dessus — sdd-reviewer.md est un artefact
+# généré par le même générateur (tools/agent-defs/generate.mjs).
+agents/sdd-reviewer.md text eol=lf
+# SKILL-25 : les modes d'emploi lus par les sous-agents. Deux raisons de figer
+# leur fin de ligne : les assertions de cohérence portent sur des ancres
+# MULTI-LIGNES (le bloc bash `npm install` du mode cross-repo), et SKILL-27 y
+# mesurera une TAILLE — une dérive CRLF/LF la ferait bouger sans qu'aucun mot ne
+# change. Ce verrou ne dispense pas de normaliser à la lecture dans les tests :
+# les deux protègent des choses différentes. GLOB, pas des chemins nommés : tout
+# mode d'emploi ajouté ensuite (ex. prompts/aggregator.md, SKILL-26) est couvert
+# sans action, alors que trois entrées par fichier laisseraient le suivant entrer
+# en CRLF sur une machine à core.autocrlf=true.
+prompts/*.md text eol=lf
+# SKILL-54 : même verrou, même raison, autre dossier. `steps/*.md` porte les
+# sections du skill dont la lecture est CONDITIONNELLE, chargées à la demande
+# par l'orchestrateur lui-même (pas par un sous-agent, d'où un dossier distinct
+# de prompts/). Deux raisons de figer leur fin de ligne, les mêmes qu'au-dessus :
+# des assertions de cohérence y portent sur des ancres MULTI-LIGNES (les motifs
+# de `aggregator-wiring.test.js`, repointés ici par ce ticket), et
+# `skill-size-ceiling.test.js` y mesure une TAILLE (`PLAFOND_STEPS`) — une dérive
+# CRLF/LF la ferait bouger sans qu'aucun mot ne change. GLOB, pas des chemins
+# nommés : toute section déplacée ensuite est couverte sans action.
+steps/*.md text eol=lf
+# SKILL-33 : contrairement à preflight.mjs/generate.mjs ci-dessus, aucun test
+# n'importe backlog.mjs aujourd'hui — le défaut CRLF est latent, pas cassé. On
+# gèle quand même sa fin de ligne : l'invariant que ce ticket établit est une
+# égalité octet pour octet entre le bundle qui s'exécute (self-update, LF) et le
+# bundle commité, qu'un checkout autocrlf casserait ; et SKILL-35 (verrou
+# anti-récidive « bundle exécuté ↔ bundle commité ») doit trouver cet attribut
+# déjà posé, pas le découvrir après coup sur un clone frais. GLOB
+# (tools/backlog/*) : tout fichier ajouté ensuite dans ce dossier est couvert
+# sans action, coût de churn nul (l'index est déjà en LF).
+tools/backlog/* text eol=lf
+# SKILL-97 : même verrou, même raison que prompts/ et steps/ ci-dessus, autre
+# dossier. `rules/*.md` porte les règles path-scopées (la méthode de maturation,
+# sortie de CLAUDE.md), et `skill-size-ceiling-coherence.test.js` y mesure une
+# TAILLE (`PLAFOND_RULES`). GLOB, pas un chemin nommé : toute règle déposée
+# ensuite est couverte sans action. Ajouté en FIN de fichier délibérément —
+# les exemptions de M2 (commands-shape-coherence.test.js) citent des NUMÉROS DE
+# LIGNE de ce fichier, qu'une insertion plus haut décalerait.
+# ⚠️ `rules/**/*.md`, pas `rules/*.md` : `*` ne franchit pas `/`, et le chargeur
+# de règles du client descend dans les SOUS-DOSSIERS — un `rules/x/y.md` serait
+# indexé en CRLF sur cette machine (core.autocrlf=true) tout en étant chargé en
+# session, et compté par PLAFOND_RULES depuis sa mesure récursive. `**/` matche
+# zéro dossier ou plus : `rules/maturation.md` reste couvert.
+rules/**/*.md text eol=lf
