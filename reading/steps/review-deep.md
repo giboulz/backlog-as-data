@@ -25,7 +25,8 @@ have not read, and you are not in a position to make it.
 The aggregator returns three things: the **aggregated list** (`U` unique
 findings, renumbered 1 to `U`, without attribution), the **correspondence** (each
 raw finding → one unique) and a `TOTAL_UNIQUES: <U>` line. **Two mandatory
-checks, before resuming the implementer — neither replaces the other**:
+checks, before launching the fresh corrector on these findings — neither
+replaces the other**:
 
 1. **No raw finding lost.** Every raw finding from each of the three reports
    (`R` = sum of the `TOTAL:` values read at Step 6.4) has a destination in the
@@ -62,5 +63,5 @@ reads on its own.
 
 **Substitutions**: `<REPORT_PATH>` — the report deposit path of **one** reviewer,
 computed at Step 6.3 and passed to that reviewer in its call prompt;
-`<RAW_FINDINGS>` — what Step 6.5 passes to the resumed implementer, whose value at
+`<RAW_FINDINGS>` — what Step 6.5 passes to the fresh corrector, whose value at
 dosage `deep` is fixed by this very step.

@@ -85,8 +85,10 @@ Valid statuses: `parked maturing todo wip merged shipped wont`.
   that will blow up at the next use does not.
   These do **not** justify `deep`: the ticket's size, the spec's length, the
   number of files touched.
-- **Choosing the model (`--model`).** There is a written scale in the global
-  `CLAUDE.md`, section "Choosing the model at maturation" (a three-case table) —
+- **Choosing the model (`--model`).** There is a written scale in
+  `rules/maturation.md` (the global config repository — same `homedir()` as
+  `$TOOL` above, `rules` folder), section "Choosing the model at maturation"
+  (a three-case table) —
   same principles as the review dosage: you read the signals, you propose, the
   user overrides. The `effort ⇒ model` coherence is held by the tool itself
   (`mature` refuses a violation, `--override-coherence` is the gesture that

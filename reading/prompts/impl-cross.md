@@ -148,6 +148,93 @@ npm install
 Your diff has been reviewed. You are handed a numbered list of findings. You do
 not know — and need not know — where they come from: handle them all.
 
+<!-- SHARED:resume-regimes -->
+**Two resume regimes**, and you know which is yours by looking at what you have
+in context: **resumed in context** — you wrote the implementation, higher up in
+this conversation; or **launched fresh** — you are started with the findings as
+your only past. The second is the **nominal** regime. It earns you five facts
+nothing else will tell you:
+
+1. the implementation is **already committed**: do not redo it, do not re-read it
+   as if it were missing — your work starts at the findings;
+2. your worktree is **already mounted** and is given to you on the **Worktree**
+   line of your resume prompt: do not mount a second one;
+3. there is **no rebase**, and you do **not amend** the reviewed commit either:
+   both would invalidate the SHA the review register is about to verify, and that
+   commit is not yours — unlike your predecessor, you have no way of knowing
+   which one was reviewed. Point 2 of the triage below opens two branches ("amend
+   your commit **or** add a commit"); in this regime only the second is open: add
+   a `fix(<TICKET-ID>): …` commit;
+4. the rationale behind conservative interpretation choices is in the **commit
+   messages** (§ "If you find yourself stuck": "document the choice in the
+   commit"): re-read them with `git log` before settling a finding that
+   contradicts them. Of the first-pass report, only the **Deliberate arbitrations**
+   rubric is passed back to you — the rest is not forwarded;
+5. the lines of your resume prompt are not those of the initial call:
+   **Ticket**, **Spec (absolute)**, **Effort**, **Worktree**, **First-pass
+   deliberate arbitrations** (`none` if the first pass declared none), then the
+   findings verbatim. Read each value on the line that carries its name.
+
+⚠️ The § "Substitutions" at the head of this file describes the **initial** call,
+not the resume: it does not declare all the lines of fact 5, and the **First-pass
+deliberate arbitrations** line has no declaration other than this one.
+<!-- /SHARED:resume-regimes -->
+
+⚠️ **Your Step 0 shrinks accordingly**, to the `cd` onto the **Worktree** line and
+the `git rev-parse --show-toplevel` observation: your resume prompt carries no
+**Branch** line, so there is no `<target_branch>` to compare against — this
+worktree's is your predecessor's. All the rest of Step 0 remains due, starting
+with verifying your path at EVERY write.
+
+<!-- PROJECTION:conventional-scope -->
+⛔ **Conventional scope.** A gesture the repository **prescribes with no
+latitude** is not a scope decision: it does not appear in a closed Scope section,
+does not escalate **on scope grounds**, and its presence in a diff is not an
+overreach. The criterion is **three cumulative conditions**:
+
+1. a **named convention** of the repository prescribes it, and it is **citable by
+   the executor** — written in a file it reads;
+2. its **trigger** is determined — one knows mechanically when it applies;
+3. **no legitimate alternative** remains once the trigger has fired — the
+   convention does not leave a second defensible choice.
+
+Founding case, `claude-config`'s: the **supersession banner**, placed at the head
+of the section of a delivered spec whose decision the ticket supersedes
+(`claude-config`: `commands/mature.md`, § Step 5). ⚠️ The convention is looked for
+**in the repository where the ticket is delivered**, never by analogy: elsewhere,
+it is *that* repository's `CLAUDE.md` — or the rule it names — that must prescribe
+the gesture.
+
+These stay **inside** the Scope section, each by the condition it fails:
+
+- **touching a file no named convention designates** — condition 1;
+- **applying a convention the executor cannot read** — condition 1;
+- **raising a size ceiling** — condition 3: splitting the file, reducing the
+  content or escalating are real alternatives;
+- **rewording a clause** of a delivered spec — condition 3: fixing it outside the
+  ticket, widening the scope or amending the clauses are competing outcomes.
+<!-- /PROJECTION:conventional-scope -->
+
+Canonical statement: `rules/maturation.md`, in the `claude-config` repository —
+**not in your worktree**, do not go looking for it there. The block above is a
+**projection** of it, verified identical by a test; the criterion is there, whole.
+
+⚠️ **A finding raised on such a gesture anyway does have a box**: it is the **E1**
+row of the triage table below. Fixing it would mean removing a gesture the
+repository prescribes with no latitude, or widening the Scope section — two
+decisions about the *what*. Escalate it naming the convention, which serves as
+the justification. ⛔ Do not classify it as `fixed` (there is nothing to fix) nor
+drop it.
+
+⚠️ **Three "banners" coexist in this file — do not confuse them.** The
+supersession banner above meets the three conditions. The one in § SDD discipline,
+point 1 (a path cited by a spec, renamed since) does not: applying it presumes a
+judgment about what the cross-reference designates, so it remains an ordinary
+Scope item. The third, the **amendment** banner (the form `Amended by [[SKILL-NN]]`,
+placed at the amended spec), does not either: its convention lives in a **spec**
+of the repository, which no sub-agent manual reads — condition 1 — so it too
+remains a Scope item.
+
 1. **Triage.** By default **EVERY finding gets fixed**. Three closed
    exceptions, and no other:
 
@@ -234,6 +321,13 @@ Followed by:
   yourself stuck"), name here the two clauses that exclude each other, your
   choice, and why it is the most conservative one. This is the only channel the
   review chain reads — neither a code comment nor the commit message is.
+- **Deliberate arbitrations** — optional, absent if you have nothing to declare:
+  a design choice you made **knowingly** that neither existing channel carries —
+  neither an **ambiguous** spec (its rationale goes in the commit message) nor a
+  **contradictory** one (→ the rubric above). Name the option taken, the one you
+  set aside, and why. This is the only place that rationale will survive: whoever
+  takes your findings is a **fresh** agent, without your conversation — it will
+  have only this report, the spec, and `git log`.
 
 **Important**: the first line `Model used: ...` is non-negotiable — it lets the
 user verify that the model decided during maturation was actually used. You

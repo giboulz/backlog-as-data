@@ -13,21 +13,29 @@ and the guards measure.
 
 ## What is translated, and how current it is
 
-Translated from the state of **2026-08-31**. The system has moved since; the
-table says by how much, so you can tell what you are reading.
+**Brought level with the originals on 2026-09-05**, by porting the six weeks of
+French diff rather than re-translating blind. Ten files, all current as of this
+snapshot:
 
-| File | Original | Drift since translation |
-|---|---|---|
-| `skills/sdd-run-ticket.md` | `claude-config/commands/sdd-run-ticket.md` | 11 commits — the review gate's resume step, the correction spawn, the third escalation source |
-| `skills/send.md` | `claude-config/commands/send.md` | none |
-| `skills/deploy.md` | `claude-config/commands/deploy.md` | none |
-| `skills/backlog.md` | `claude-config/commands/backlog.md` | 2 commits, one line |
-| `prompts/aggregator.md` | `claude-config/prompts/aggregator.md` | none |
-| `prompts/impl-same.md` | `claude-config/prompts/impl-same.md` | 5 commits |
-| `prompts/impl-cross.md` | `claude-config/prompts/impl-cross.md` | 5 commits |
-| `prompts/reviewer.md` | `claude-config/prompts/reviewer.md` | 3 commits |
-| `steps/cross-repo.md` | `claude-config/steps/cross-repo.md` | 2 commits |
-| `steps/review-deep.md` | `claude-config/steps/review-deep.md` | 1 commit |
+| File | Original |
+|---|---|
+| `skills/sdd-run-ticket.md` | `claude-config/commands/sdd-run-ticket.md` |
+| `skills/send.md` | `claude-config/commands/send.md` |
+| `skills/deploy.md` | `claude-config/commands/deploy.md` |
+| `skills/backlog.md` | `claude-config/commands/backlog.md` |
+| `prompts/aggregator.md` | `claude-config/prompts/aggregator.md` |
+| `prompts/impl-same.md` | `claude-config/prompts/impl-same.md` |
+| `prompts/impl-cross.md` | `claude-config/prompts/impl-cross.md` |
+| `prompts/reviewer.md` | `claude-config/prompts/reviewer.md` |
+| `steps/cross-repo.md` | `claude-config/steps/cross-repo.md` |
+| `steps/review-deep.md` | `claude-config/steps/review-deep.md` |
+
+Expect that to stop being true: the originals move and these do not follow
+automatically. **Check the git log of the file in `claude-config/` before relying
+on a detail here.** The substantive change ported in this pass was the review
+gate no longer resuming the implementer but launching a fresh corrector — worth
+knowing, because it is the kind of change that makes a stale translation say the
+opposite of what the system does.
 
 ## What is not translated
 

@@ -19,6 +19,30 @@ effect. Creation comes later (Step 5.7).
   occupied — probably the worktree of a neighboring session on the same ticket
   (Step 1.5 should have seen it as `wip`). **Stop**; do not "find" another path
   yourself.
+- `guards.branchFree` is `false` → **REFUSE**: `refs/heads/<target_branch>` is not
+  creatable in the target repo. **Stop** before the recap. Name the branch and the
+  oracle that shows ALL conflicting references — homonym or D/F conflict (a **bare**
+  branch, e.g. `claude`, blocks `claude/foo-01` while never matching a `claude/*`
+  glob):
+
+  ```bash
+  git -C "<target_root>" for-each-ref --format='%(refname)' refs/heads/
+  ```
+
+  ⚠️ Not `git branch --list 'claude/*'`: on the D/F conflict, the conflicting
+  branch does not carry that prefix and the oracle would come out **silent**, exit
+  0 — a false negative that would wrongly suggest the guard was mistaken. Not
+  `git worktree list` either — on the founding case (a branch surviving a
+  `worktree remove`), it shows nothing about the branch; it only serves the second
+  reading ("the branch is checked out elsewhere"). Two possible readings: a
+  neighboring cycle is working on it (Step 1.5 should have seen it as `wip`), or it
+  is an orphan reference left by a `worktree remove` — in that second case, name
+  the remedy without playing it, on the **exact** reference listed by the oracle
+  above (`<target_branch>` in the homonym case, the bare prefix displayed — e.g.
+  `claude` — in the D/F conflict case):
+  `git -C "<target_root>" branch -D "<conflicting-reference>"`.
+  ⛔ **No automatic repair**: do not delete the reference, do not derive another
+  name, do not switch to `--force`.
 
 ---
 
@@ -57,8 +81,8 @@ git -C "<worktree_path>" log --oneline -1
   (`git -C "<target_root>" worktree remove "<worktree_path>"`) before yielding.
 - The "path free" check of Step 4.5 predates the user's confirmation: a
   neighboring session may have taken the path in between. No need to redo it —
-  `worktree add` fails by itself on an occupied path. **Do not force** that
-  refusal and do not derive a fallback path: stop and report.
+  `worktree add` fails by itself on an occupied path **or branch**. **Do not
+  force** that refusal and do not derive a fallback path: stop and report.
 
 ---
 

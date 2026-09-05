@@ -10,8 +10,8 @@
 Spawns a background sub-agent that implements a backlog ticket under the SDD
 discipline (spec → tests → code → verify → commit), with the model decided
 during maturation. **Then YOU, the orchestrator, run the review gate**: you
-spawn the reviewers, you constate the worktree state, you send the findings back
-to the implementer (resumption), you write the register and you integrate.
+spawn the reviewers, you constate the worktree state, you launch a fresh
+corrector on the findings, you write the register and you integrate.
 
 ⚠️ **This skill is not fire-and-forget.** It costs you **three round-trips**
 (implementer → reviewers → implementer resumption) before integration. That is
@@ -392,7 +392,7 @@ The sub-agent will:
 Then ME (orchestrator):
   6. Spawn <n> fresh reviewer(s) on its commit  ← unless review: none
   7. Constate the git status before/after the review
-  8. Resume it with the raw findings; it triages, fixes, re-runs the tests
+  8. Launch a fresh corrector on the raw findings; it triages, fixes, re-tests
   9. Write the review register and integrate via /send
 
 The backlog status is set automatically (wip here, merged/shipped by /send) —
@@ -545,9 +545,9 @@ repository. That is precisely the incident that made this mode necessary. The
 Step 5.7 worktree is the only place it must work, and it learns that from the
 prompt.
 
-⚠️ **Keep the agent's identifier**: you will **resume** it at Step 6.5 with
-`SendMessage`, and it is that resumption — context intact — that replaces
-reloading a fresh fixer from scratch.
+⚠️ **Keep the worktree path it reports**: Step 6.5 launches a **fresh corrector**
+on that same worktree — the agent's own identifier is not what the gate needs, the
+tree holding the reviewed commit is.
 
 Then **wait for its completion notification** before moving to Step 6.1. Spawn
 no reviewer until the implementer has returned its report: they would have no
@@ -865,7 +865,7 @@ its instruction is declarative, these two commands are the only real
 guarantee. **Both are necessary**: `status` alone is empty after a
 `git commit`, hence blind to a reviewer that committed or amended by reflex.
 If anything moved since Step 6.2, or if HEAD is no longer `<SHA_IMPL>`:
-**STOP** — do not resume the implementer, do not integrate, report "a reviewer
+**STOP** — launch no corrector (Step 6.5), do not integrate, report "a reviewer
 wrote" with the raw output of these commands.
 
 **Admissibility of reports** (as important as their content): an admissible
@@ -924,10 +924,45 @@ computed at Step 6.3, in the order the reviewers were spawned.
 
 ---
 
-## Step 6.5 — Resume the implementer with the raw findings
+## Step 6.5 — Fresh corrector on the raw findings
 
-**Resume the implementer** (`SendMessage` to the Step 6 agent — its context is
-intact, it reloads nothing) with this message:
+**Launch a FRESH corrector** on the implementer's worktree. That is the nominal
+mode, and the only one: there is no fallback path, because a path never taken
+degrades without a witness — the same argument that forbids copying a manual into
+a call prompt (§ Step 6). The context of the Step 6 agent is not what a fresh
+corrector lacks: it re-reads its manual IN FULL, and the rationale behind the
+conservative choices is in the commit messages, which it re-reads with `git log`.
+
+Same parameters as Step 6 — `subagent_type` = `sdd-impl-<effort>`, the ticket's
+`model` — **without the `isolation` line, in BOTH modes**:
+
+```
+Agent({
+  subagent_type: "<subagent_type>",
+  model: "<model>",
+  run_in_background: true,
+  description: "SDD <TICKET-ID> (correction)",
+  prompt: <PROMPT_TEMPLATE>
+})
+```
+
+⛔ **No `isolation` here, even in "same repo" mode**: the worktree already exists
+and holds the reviewed commit. An `isolation` would create a second, blank one —
+the corrector would "fix" a tree without the commit to fix, and would announce
+SHAs unfindable in `<WORKTREE_IMPL>`.
+
+⚠️ **The `(correction)` suffix of the `description` is a literal, and it is not
+decorative: it MARKS this launch for the Step 6.8 measurement.** Without it, the
+Step 6 implementer and this corrector carry the same `description`; the
+measurement, which keeps the ticket's **last** launch, switches to the corrector,
+and `spawnIndex`, `prompt` and `tokensAtSpawn` then designate the correction
+instead of the cycle — a plausible and false record. It breaks nothing:
+`TICKET_ID_FROM_DESCRIPTION_RE` stops at the **first blank**, so
+`SDD <TICKET-ID> (correction)` yields exactly the same ticket identifier as
+`SDD <TICKET-ID>`. ⛔ **Apart from that suffix, the `description` stays word for
+word the one from Step 6.**
+
+The prompt carries the findings:
 
 ```
 Resumption on <TICKET-ID>. Your diff has been reviewed. Here are the findings, verbatim:
@@ -945,13 +980,12 @@ disposition table — one line per number above — and STOP.
 ⛔ Invoke neither /send nor /deploy.
 ```
 
-⚠️ **The resolution command is given again here, and that is not redundancy**:
-the initial call prompt sits at the head of the context, so it is the first thing
-compaction summarizes away. An implementer resumed after a long implementation
-may no longer hold the path to its own manual — and would then handle the
-findings from memory, without E1/E2/E3 and without the disposition format. That
-is the failure mode this mechanism exists to close; do not remove those two
-lines.
+⚠️ **The resolution command is given again here, and that is not redundancy**: a
+fresh corrector has no call prompt behind it at all, and even a resumed agent
+carries its initial prompt at the head of its context, where compaction summarizes
+first. Without that path the corrector would handle the findings from memory,
+without E1/E2/E3 and without the disposition format. That is the failure mode this
+mechanism exists to close; do not remove those two lines.
 
 **Substitutions of this message**: `<RAW_FINDINGS>` → the `U` unique findings,
 numbered, composed under the following rules — the **aggregated list** of Step
@@ -966,9 +1000,9 @@ skill's):
   silent dismissal nobody would see a trace of.
 - **No attribution, no counts.** No mention of the reviewer that raised it, of
   the number of reviewers, of the dosage, nor of the number of empty reports.
-  That information is your evidence, not theirs: giving it to the implementer
+  That information is your evidence, not theirs: giving it to the corrector
   would hand back exactly the material it must no longer be able to attest to.
-- If `U` is **0**, do not resume the implementer: there is nothing to fix.
+- If `U` is **0**, launch no corrector: there is nothing to fix.
   Move to Step 6.6 with an empty register.
 
 ⏳ **Wait for its disposition table before Step 6.6**, exactly as you waited
@@ -985,7 +1019,7 @@ spawn no second wave of reviewers, even if its fixes are substantial.
 ## Step 6.6 — Review register (written by YOU)
 
 You now have both columns: the **incoming** findings (your reports) and the
-outgoing **dispositions** (the implementer's table). Cross them and publish
+outgoing **dispositions** (the corrector's table). Cross them and publish
 the register — it is a **constatation**, not a transcribed declaration:
 
 ```
@@ -996,7 +1030,10 @@ Review: <n> reviewer(s) · R raised findings · U unique after merge
 | 2 | …                     | A, C     | escalated — E1: <justification> |
 | 3 | …                     | B        | ticket created — E2: <id> |
 Check: U unique = U disposed ✓
+Spec escalation (first pass): none | <summary — outside the equation, Step 6.6.5>
+Orchestrator observation: none | <summary — outside the equation, Step 6.6.5>
 git status during the review: clean | WROTE — <what moved>
+Correction regime: fresh corrector | none — U = 0 | none — stopped at Step 6.4
 ```
 
 - **Two distinct counters, not one.** `R` = the **raw raised findings** (the
@@ -1049,10 +1086,30 @@ git status during the review: clean | WROTE — <what moved>
 `escalated — E1` or `escalated — E3` disposition, or if the implementer declared
 a spec escalation in its first-pass report** (§ "Spec escalation (first pass)" of
 its manual, the "contradictory spec" case of its "If you find yourself stuck"
-section). No escalation → no section, no commit: an empty section would say an
-arbitration was requested when none was — the same defect as a register
-fabricated at dosage `none` (§ Step 7). E2 is not concerned: the ticket it
-created is already its durable trace.
+section), **or if YOU yourself formed a Step 6.6 observation — the third source,
+bounded by the three conditions of the ⛔ paragraph below.** No escalation → no
+section, no commit: an empty section would say an arbitration was requested when
+none was — the same defect as a register fabricated at dosage `none` (§ Step 7).
+E2 is not concerned: the ticket it created is already its durable trace.
+
+⛔ **The third source — the observation YOU form yourself at Step 6.6, crossing
+the register's material with a clause of the spec — is bounded by THREE
+cumulative conditions, and a missing condition closes it: it does not soften
+it.** (1) **Anchoring** — the observation is born of an element the register
+**already** carries (a finding and its disposition, or a `fixed (<sha>)` you have
+just verified), crossed with a **named** clause of the spec (file, section,
+quotation); without that anchoring it is not an observation but a **re-read**:
+you are not a reviewer, and Step 6.6 is not a second gate. (2) **Lack of
+authority** — fixing the clause at issue would be **deciding**: it is outside the
+ticket's Scope section, or fixing it would amount to rewriting the contract by
+implementing it. This is not a lack of **capability**: you can perfectly well
+write in that spec, it is even what this step makes you do — the boundary is
+between **writing the escalation**, hence making arbitration possible, and
+**settling it**, hence taking it in the user's place. (3) **Perishability** —
+unwritten, the information dies with the session: it has no finding, no
+disposition, no ticket carrying it. A defect the corrector **could** have fixed is
+a finding the gate missed: it is not an escalation, and manufacturing one to house
+it is the exact inverse of this mechanism.
 
 - **Where**: the ticket's spec (`<ABSOLUTE_SPEC_PATH>`), resolved inside
   `<WORKTREE_IMPL>` — never in a live checkout. **Appended into the body**, under
@@ -1393,7 +1450,7 @@ need the tree.
 [notif]   Agent "SDD ANALYTICS-02S" completed. Commit d1f1ef7, 8 tests green.
 [skill]   → worktree + SHA re-read programmatically, git status clean
           → 1 reviewer spawned (light), 2 findings raised
-          → implementer resumed with the 2 findings, dispositions returned
+          → fresh corrector launched on the 2 findings, dispositions returned
 [skill]   ✓ ANALYTICS-02S delivered.
           Review: 1 reviewer · 2 raised findings · 2 unique after merge
           | # | Finding                    | Reviewer | Disposition |

@@ -103,6 +103,43 @@ Step 1 (axis 4).
 4. **Conformity to the `CLAUDE.md` rules** (project then global) — notably the
    non-negotiable test rules.
 
+<!-- PROJECTION:conventional-scope -->
+⛔ **Conventional scope.** A gesture the repository **prescribes with no
+latitude** is not a scope decision: it does not appear in a closed Scope section,
+does not escalate **on scope grounds**, and its presence in a diff is not an
+overreach. The criterion is **three cumulative conditions**:
+
+1. a **named convention** of the repository prescribes it, and it is **citable by
+   the executor** — written in a file it reads;
+2. its **trigger** is determined — one knows mechanically when it applies;
+3. **no legitimate alternative** remains once the trigger has fired — the
+   convention does not leave a second defensible choice.
+
+Founding case, `claude-config`'s: the **supersession banner**, placed at the head
+of the section of a delivered spec whose decision the ticket supersedes
+(`claude-config`: `commands/mature.md`, § Step 5). ⚠️ The convention is looked for
+**in the repository where the ticket is delivered**, never by analogy: elsewhere,
+it is *that* repository's `CLAUDE.md` — or the rule it names — that must prescribe
+the gesture.
+
+These stay **inside** the Scope section, each by the condition it fails:
+
+- **touching a file no named convention designates** — condition 1;
+- **applying a convention the executor cannot read** — condition 1;
+- **raising a size ceiling** — condition 3: splitting the file, reducing the
+  content or escalating are real alternatives;
+- **rewording a clause** of a delivered spec — condition 3: fixing it outside the
+  ticket, widening the scope or amending the clauses are competing outcomes.
+<!-- /PROJECTION:conventional-scope -->
+
+Canonical statement: `rules/maturation.md`, in the `claude-config` repository —
+**not in your worktree**, do not go looking for it there. The block above is a
+**projection** of it, verified identical by a test; the criterion is there, whole.
+It bounds **axis 1**, and it alone: a file outside the Scope section that does
+**not** meet the three conditions remains an axis-1 finding, to be reported as
+such. This is not a general dispensation from flagging an out-of-scope file, and
+it touches none of the other three axes.
+
 **Priority lens.** Your call prompt may give you an axis number in
 `<PRIORITY_AXIS>`: start with that axis, then sweep the other three. It
 **orders** your sweep, it never restricts your scope. ⛔ If it gives you **no
