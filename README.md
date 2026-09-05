@@ -446,8 +446,20 @@ back → integration. The gate design is the part I have not seen elsewhere:
   arrived with 39 characters and broke the reviewer's location assertion), and
   publishes a **review register**: findings in, dispositions out, one line per
   unique finding, with a mechanical completeness check.
+- **The fixes are made by a fresh corrector, not by the implementer.** This one
+  reversed: the findings used to go back to the implementing sub-agent, resumed
+  with its context intact. It is now a new sub-agent — same model, same effort,
+  the same worktree holding the reviewed commit (and therefore *no* fresh
+  isolation, or it would "fix" a tree that does not contain the commit). Two
+  reasons, and the second is the general one. What the implementer had was not
+  actually missing: the corrector re-reads its manual **in full**, and the
+  rationale behind the conservative choices is in the commit messages, which
+  `git log` gives it. And keeping the resume path as a fallback was worse than
+  removing it — **a path never taken degrades without a witness**, the same
+  argument that forbids copying a manual into a spawn prompt. So there is one
+  mode and no fallback.
 - **Findings have exactly two exits: fixed, or escalated with justification.**
-  The implementer triages every finding into fix, or one of three closed
+  The corrector triages every finding into fix, or one of three closed
   escapes — E1 (fix requires changing the spec), E2 (pre-existing debt → open a
   ticket via the CLI), E3 (fix breaks an existing green test). No silent
   dismissal: "not a big deal" is not a disposition. E2 has its own trap,
@@ -516,6 +528,22 @@ reviewer who read the code against a contract that turned out to be wrong. The
 implementer cannot fix it: it is forbidden to touch the spec, and that
 prohibition is the whole reason the review has a fixed contract to judge against.
 
+There are **three** sources, and the third one had to be fenced carefully. A
+reviewer's finding, escalated by the corrector. The implementer's own first-pass
+declaration, when it hits a contradictory spec before any review. And the
+orchestrator's **own observation**, formed while writing the register — which is
+the dangerous one, because an orchestrator that may escalate what it notices is
+one step from being a second, unaccountable reviewer. So it is bounded by three
+cumulative conditions, and a missing condition closes it rather than softening
+it: the observation must be **anchored** in something the register already
+carries, crossed with a *named* clause of the spec (otherwise it is a re-read,
+and this step is not a second gate); the orchestrator must lack **authority**,
+not capability — the line is between writing the escalation, which makes
+arbitration possible, and making the call itself; and the information must
+**perish** otherwise, having no finding, disposition or ticket to carry it. A
+defect the corrector *could* have fixed is a finding the gate missed, and
+manufacturing an escalation to house it is the exact inverse of this mechanism.
+
 So the orchestrator writes it down, in the ticket's own spec file:
 
 - **In the body, never the frontmatter.** The frontmatter is mutated exclusively
@@ -565,12 +593,18 @@ quiet design rule. Every step is one of three kinds:
 - **LLM judgment (orchestrator)** — scope arbitration, spec writing,
   dependency confirmation, writing the review register, writing escalations
   into the spec. Things that genuinely require judgment, kept in conversation.
-- **LLM generation (sub-agents)** — the implementer, the reviewers, and the
-  aggregator. The generative work, behind guards on both sides. Merging
-  duplicate findings used to sit in the bullet above, as orchestrator judgment;
-  it moved here once it got its own blind sub-agent, which is a better place
-  for it — the orchestrator now *checks* the merge (the row count) instead of
-  performing it.
+- **LLM generation (sub-agents)** — the implementer, the reviewers, the
+  aggregator, the corrector that applies the findings, and the challengers that
+  read a matured spec before any of them exist. The generative work, behind
+  guards on both sides. Merging duplicate findings used to sit in the bullet
+  above, as orchestrator judgment; it moved here once it got its own blind
+  sub-agent, which is a better place for it — the orchestrator now *checks* the
+  merge (the row count) instead of performing it.
+
+  Note what the five have in common: **every one of them arrives without the
+  conversation that produced its input.** That is not a coincidence of five
+  designs, it is the same design applied five times — and it is the single most
+  transplantable thing in this repository.
 
 The design trajectory follows from incidents: **every time a mechanical step
 lived as prose instructions executed by the LLM, it eventually failed** — a
@@ -596,7 +630,18 @@ orchestrator from its own shell, because a sub-agent running it would measure
 **its own** transcript — a different quantity, silently. And a finding's fix SHA
 is recorded before integration rebases it, so the writer itself checks whether
 that SHA is still reachable from the branch, rather than trusting the number it
-was handed.
+was handed. When that check comes back false, it now has to carry **why** —
+an unreachable SHA and a SHA nobody could verify are different facts, and a bare
+`false` collapsed them.
+
+Adding the fresh corrector broke the measurement in a way worth recording,
+because the failure mode is the one this whole section is about. The corrector is
+spawned with the same parameters as the implementer, so it arrived carrying the
+same description — and the writer, which keeps the ticket's **last** spawn,
+silently started measuring the correction instead of the cycle. Nothing errored;
+the record was simply plausible and false. The fix is a literal `(correction)`
+suffix on that one description, and it is documented as load-bearing so nobody
+tidies it away as decoration.
 
 One rule of the register carried over into the file, and it is the one worth
 stealing: at dosage `none`, the finding counts are **omitted, not zeroed**.
@@ -713,10 +758,12 @@ agent      /sdd-run-ticket PARSE-07
              different priority lens per reviewer, never a subset).
              The orchestrator locates worktree+SHA programmatically,
              collects the reviewers' reports, checks git status unchanged —
-             then resumes THE IMPLEMENTER with the raw findings, verbatim:
-             the implementer (context intact) triages E1/E2/E3 and fixes;
-             the orchestrator never touches the code. It closes by
-             verifying the fix commits exist and publishing the register
+             then spawns a FRESH CORRECTOR on the implementer's worktree
+             with the raw findings, verbatim. Same model and effort, no
+             `isolation` (the worktree already holds the reviewed commit).
+             It triages E1/E2/E3 and fixes; the orchestrator never touches
+             the code. It closes by verifying the fix commits exist and
+             publishing the register
   residue    any E1/E3 escalation is APPENDED to the ticket's spec in its
              own `docs(PARSE-07): escalation` commit, tag-prefixed so the
              CLI can list it later — arbitration outlives the session.
