@@ -425,6 +425,42 @@ Design decisions that took incidents to learn:
   merge hook only promotes `wip`. That's a feature: the manual `set` correction
   is legitimate then, and visible as such.
 
+### The cross-repo flow: everything works, in the wrong tree
+
+The ownership rule says a ticket is opened where its deliverable lives — so a
+ticket whose deliverable is a global skill lives in the config repository, even
+when you are working in a completely different project. That makes running a
+ticket from *elsewhere* the normal case, not an edge case, and it is a whole flow
+the rest of this README would otherwise leave invisible.
+
+The mechanical problem is narrow and total: the harness's built-in worktree
+isolation forks **the session's** repository, not the ticket's. Used cross-repo it
+produces a perfectly valid isolated worktree of the wrong project, in which
+everything then succeeds — the agent works, the tests pass, the commit lands. This
+is the system's central failure mode, and it is named as such in the skill: *tout
+marche, mais dans le mauvais arbre*.
+
+So the skill runs in one of two modes, and three things about how it decides are
+worth stealing:
+
+- **The criterion is the shared git dir, not where the ticket lives.** A session
+  already working inside a worktree of the config repository stays in same-repo
+  mode, even though the ticket "belongs elsewhere" by the ownership rule. Deciding
+  on the ticket's home instead would misfire on exactly the case that occurs most.
+- **Cross-repo, the built-in isolation is not used at all.** The orchestrator
+  mounts the worktree itself against the target repository and spawns the agent
+  without isolation — and every `git` command in the skill is then prefixed with
+  an explicit `-C`, target root or worktree path. Never the implicit current
+  directory, which is the thing that silently points at the session's repo.
+- **The blocks are written to be correct in both modes.** The target root is not
+  assumed equal to the session root even in same-repo mode, because a worktree and
+  its main checkout are not the same path either. A rule that only holds in the
+  exceptional mode is a rule someone will apply in the nominal one.
+
+The two implementer manuals exist for this split, and it is also why the sub-agent
+verifies where it is before writing anything rather than trusting that it was
+launched correctly.
+
 ### The review gate: fresh-context reviewers, orchestrator-held evidence
 
 `/sdd-run-ticket` runs the full loop for one ticket: preflight guards →
