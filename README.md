@@ -1148,7 +1148,19 @@ destination:
 | **behavior** — the user keeps correcting the same thing | durable memory | promote it to a `feedback`/`project` fact |
 | **one specific skill** | a `SKILL-NN` ticket | open the ticket, or propose running `/improve-skill` |
 | **tooling** — CLI, tests, migrations | a project ticket | open it in the relevant scope |
-| **the workflow itself** | `CLAUDE.md` | propose a diff — never apply it |
+| **the maturation method** — writing a spec: scope, tests, verification | a diff of `rules/maturation.md` | propose a diff — never apply it |
+| **the workflow itself** — everything else | a diff of `CLAUDE.md` | propose a diff — never apply it |
+
+The last two rows are separate on purpose, and the seam between them is the
+sharpest thing in the table. The *text* of the seven checks lives only in
+`rules/maturation.md`; a method diff that does not touch a check's **title** —
+a justification, an example, a scale — aims there and there alone, and would in
+any case hit the `CLAUDE.md` ceiling if it aimed at the doctrine file. But the
+seven titles are also **projected** into `CLAUDE.md`, one line each, and a test
+asserts the two copies say the same thing. So a diff that rewords a title has to
+land in **both files in the same commit** — otherwise the test goes red — and
+re-measure the ceiling it just moved. A router that offered a single "the
+workflow" row would send half of these to the wrong file.
 
 **A destination for skills, `/improve-skill`.** A young skill is usually wrong in
 ways only real use reveals, so this one turns a specific skill's usage friction
@@ -1183,10 +1195,77 @@ convention — recurs at most once per project, so in any single project's pool 
 would never reach two, and the miner would throw it away forever. Global
 candidates therefore accumulate in one pool at a fixed absolute path, independent
 of which project the session is in, where the threshold can actually fire.
-Correlating *several* projects' pools to catch a "project" friction that turns out
-to be global is a further step, and it stays an explicit mode rather than a
-default: it reads outside the current project, its cost grows with the number of
-projects rather than with the session's work, and its output touches other pools.
+
+**And the two pools are counted separately, never merged into one heap.** The
+`n ≥ 2` threshold applies *within* each population, because an isolated
+project-scoped candidate promoted on the strength of an unrelated global one is a
+manufactured promotion — precisely what the threshold exists to prevent. This is
+the kind of guard that costs one sentence to write and is invisible once it works.
+
+### The cross-project scan, and why it reads in two passes
+
+Correlating *several* projects' pools — to catch a friction filed as
+project-specific that turns out to be global — is a mode you ask for, never a
+default: it reads outside the current project, and its output writes into another
+project's memory, which is the only out-of-project write in the whole mechanism.
+Four of its design choices are worth more than the feature:
+
+- **The threshold counts distinct projects, not candidates and not pools.** Every
+  worktree carries its own memory key, so three candidates describing the same
+  friction across three keys of the *same* project must fold back into one and
+  trigger nothing — that is a friction of that project, already in the right
+  place. It takes two, in two genuinely distinct projects.
+- **Recurrence is a semantic judgment on the descriptions, not a slug match.** Two
+  sessions hitting the same friction almost never name it the same way, so exact
+  name matching would find nothing and report cleanly that there was nothing.
+- **It reads in two passes, and that is a cost decision.** The correlation pass
+  loads only each candidate's name and description — the scope tag lives in the
+  *body*, so it is not available yet. Bodies are loaded only for candidates that
+  actually matched. The cost therefore follows the number of correspondences, not
+  the size of the pool.
+- **Ambiguity resolves in favour of the living project.** A memory key encodes a
+  path, and the encoding is not invertible: a separator and a literal hyphen in a
+  project name both come out as `-`. So the scan generates every plausible
+  interpretation of a key and checks each on disk; one that exists means the
+  project is not orphaned. Wrongly discarding a real pool would break the
+  threshold for every friction living in it — worse than a false negative. And
+  discarded folders are **named in the report**, because a scan that silently
+  skips data is indistinguishable from one that found none.
+
+That last principle is the same one as `0 findings` being omitted rather than
+zeroed at review dosage `none`. It keeps showing up because it is the same
+mistake wearing different clothes: an absence of evidence rendered as evidence of
+absence.
+
+### How a mining pass runs
+
+```
+you        /reflect            (a deliberate gesture — see below)
+
+  1 read     the project's candidates, its existing durable rules — so an
+             already-engraved rule is not re-proposed — and, always, the
+             global pool at its fixed absolute path
+  2 cluster  group by friction theme, a semantic judgment rather than a
+             `group by`. ⛔ the two populations cluster SEPARATELY
+  3 decide   `≥ 2` and no existing rule → a pattern. Seen once → an n=1
+             artifact, and nothing is engraved on it. `≥ 2` but an existing
+             rule already says it → not a new rule: the rule exists and is
+             not being followed, which is a visibility problem, noted as one
+  4 route    each pattern gets ONE proposal aimed at a home that already
+             exists — a row in a table, never an invented destination
+  5 propose  a ranked list, one line per pattern, approved CASE BY CASE —
+             not all-or-nothing. A refused proposal leaves its candidate in
+             place, to come round again at the next pass. ⛔ no hot-patch:
+             the miner cannot edit a skill or `CLAUDE.md`, it proposes a
+             ticket that enters the normal spec → tests → code → verify
+             cycle, created in `maturing` with NO execution triplet
+  6 clean    promoted or absorbed candidates are removed — they found a
+             home. Dated n=1 artifacts may be purged, but only on explicit
+             approval: never a silent purge
+
+  recap      the same barrier as `/mature`: displayed before the first
+             mutation, enumerating what the rest will write
+```
 
 Firing the miner is still a manual gesture, and that is the deliberate part.
 Automating the trigger is the tempting move and the one that would overfit a young
