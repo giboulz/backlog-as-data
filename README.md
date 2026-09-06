@@ -72,7 +72,80 @@ friction gets captured raw, mined for what actually repeats, and routed into
 whichever mechanism already owns it — with the human kept as the filter on
 purpose.
 
+None of the five was arrived at from first principles about agents. They are
+[four Lean commitments](#the-frame-four-lean-commitments) — catch a deviation as
+early as it is cheap, work on waste, keep a flow that reaches production instead
+of accumulating on a status, and improve the standard continuously — applied to a
+place where the worker is a language model. **Read that section first if you want
+the reasoning rather than the parts**: it is what makes the rest cohere, and most
+of what follows is one of those four applied somewhere specific.
+
 ## Why
+
+### The frame: four Lean commitments
+
+Everything below was built with four commitments in mind, and they are the reason
+the pieces fit together rather than being a pile of good ideas. They are worth
+stating first, because almost every design decision in this README is one of them
+applied to a specific place.
+
+**1. Detect a deviation as early as possible, to limit its cost.** The price of a
+false clause is not constant: caught while the spec is being written it costs a
+sentence, caught by a reviewer it costs a cycle, caught in production it costs an
+incident. So each check is pushed as far upstream as it can go — the
+[seven checks](#maturing-a-spec-seven-checks-before-a-clause-gets-written) fire
+*before a clause is written*, the
+[challengers](#mature-the-batch-is-the-unit-and-a-fresh-challenger-reads-the-spec)
+read the spec *before any code exists*, the
+[gate](#the-review-gate-fresh-context-reviewers-orchestrator-held-evidence) reads
+the diff *before integration*. And every guard is fail-closed: a checkpoint that
+cannot confirm stops the line instead of continuing. The failure it exists to
+prevent is the one where everything works — in the wrong tree.
+
+**2. Work on waste.** Reviewing every ticket at maximum depth is over-processing,
+so [detection is dosed](#maturation-dosing-model--effort--review-per-ticket) in
+proportion to what a miss would cost. Prompt bloat is inventory nobody sees, so a
+[byte ceiling](#the-skill-became-a-program-and-it-has-a-size-budget) turns it into
+a visible, priced edit. Re-reading a context that grows with every ticket is pure
+waste, so [the session has a budget](#the-other-budget-what-a-session-costs-and-where-to-cut-it)
+too. A fallback path kept "just in case" is dead stock — **a path never taken
+degrades without a witness** — so the gate has one mode and no fallback. And
+engraving a rule on a single observation is rework that makes the system
+oscillate, hence the `n ≥ 2` threshold before anything becomes a rule.
+
+**3. A flow that reaches production and does not pile up on a status.** This one
+shaped the data model itself. Status is a **field**, so there is no column to
+accumulate in — and no "Done" to be stuck in. The back half of the lifecycle is a
+*consequence* of commits landing rather than a move someone performs:
+[hooks keyed on the git flow](#lifecycle-hooks-tied-to-the-git-flow) carry
+`wip → merged → shipped`, so a ticket cannot rest in "finished but not shipped"
+because nobody dragged it. Work in progress is bounded by waves of a few tickets
+per session. The review is **one round**, never a second wave, because a rework
+loop is not quality. Escalations deliberately do *not* block: the cycle finishes
+and ships, and the decision waits in the spec where a verb lists it. And
+`parked`/`wont` are a **commitment** axis kept orthogonal to the pipeline,
+precisely so nothing rots in limbo while pretending to be in flight.
+
+**4. A continuous-improvement system, not good intentions.** Lessons are written
+back [at the point of failure](#scar-tissue-incidents-that-shaped-the-design), so
+the next agent re-reads them exactly where it is about to make the mistake. The
+[candidate → mine → route loop](#the-loop-that-feeds-the-skill-this-section-used-to-be-the-open-problem)
+turns repeated friction into a rule with a home. And closing an escalation asks a
+root-cause question with a closed answer — *which of the seven checks should have
+caught this?* — where `none` forces a ticket against the method itself. That is
+the mechanism refusing to let a defect close on "I will be more careful next
+time": either the standard has a hole, or it was not followed, and those have
+opposite fixes.
+
+**Where the analogy stops.** Two places, honestly. **Nothing prunes a mature
+rule** — the standard only ever grows; the ceilings make growth visible and
+expensive, and the miner refuses to duplicate an existing rule, but neither
+deletes anything. And there is no pull signal: the flow is pulled by one person's
+attention, which is why
+[firing the miner stays a manual gesture](#the-loop-that-feeds-the-skill-this-section-used-to-be-the-open-problem)
+and why the throughput does not scale past one human.
+
+### What kept failing before
 
 This came out of running Claude Code daily on a solo project with many parallel
 agent sessions. Markdown to-do documents kept failing in the same ways:
@@ -105,11 +178,18 @@ should do. But it is what forced this system into existence: when nobody reads
 the code, the process has to carry the trust that a code-reading human would
 normally provide. Hence machine-checkable invariants everywhere, hence a
 review gate that is fully automated (fresh-context reviewers instead of my
-eyes), and hence its role: not a ceremony that certifies quality, but a lean
-mechanism — catch the misses as early as possible, at the lowest possible
-cost. The dosage (`review: none|light|deep`, decided at maturation) is exactly
-that lean calibration: pay for defect detection in proportion to the cost of a
-defect slipping through.
+eyes), and hence its role: not a ceremony that certifies quality, but
+commitment 1 above made mechanical — catch the misses as early as they are
+cheap. The dosage (`review: none|light|deep`, decided at maturation) is
+commitment 2 in the same breath: pay for defect detection in proportion to the
+cost of a defect slipping through, and refuse to pay more.
+
+Which is also why the Lean framing is not a retrofit. I did not read about
+these principles and go looking for somewhere to apply them; they are the
+habits I already had, and the black-box bet is what made them load-bearing
+rather than decorative. When nobody reads the code, "catch it early" and "do not
+let work pile on a status" stop being good practice and become the only thing
+standing between you and shipping something nobody has ever looked at.
 
 ## The data model
 
