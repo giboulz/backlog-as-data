@@ -397,6 +397,71 @@ right and the **order** is wrong. And case 0 spawns nothing *and writes no
 which is the same manufactured evidence as a review register reporting `0
 findings` when nobody looked.
 
+### How a batch gets matured (end to end)
+
+The back half of the pipeline gets a walkthrough further down; here is the front
+half, which is where the decisions are actually made.
+
+```
+you        "mature the first wave" — or "ok for the three, mature them"
+agent      /mature SKILL-98 SKILL-99 SKILL-101
+
+  1 batch    for EACH id, the target repo is resolved by the SAME preflight
+             tool /sdd-run-ticket calls — never presumed equal to the session's.
+             A batch can be matured from one repo and live in another; that is
+             the nominal case for a global-skill ticket. Session not inside a
+             git repo → STOP, and no fallback root is invented
+
+  2 escal.   `backlog escalations`, UNCONDITIONALLY and before anything else —
+             including when you only asked for maturation. The verb always
+             prints something and always exits 0, so the skill branches on what
+             it SAYS, never on an empty stdout or a return code. Open ones are
+             then intersected with the batch: escalations belonging to other
+             tickets are reported and NOT treated — the batch is what you named,
+             not what the tool found
+
+  3 arbitr.  one escalation at a time, three blocks in a fixed order, and it
+             WAITS for you. This is the one blocking point of the skill
+
+  4 gate     closing engraves a marker in a spec, so it is gated. An E1 caused
+             by a false clause needs its diagnosis line first — a number 1-7, or
+             `none`. `none` additionally requires a ticket opened against the
+             method itself, its id cited in that same line. And any arbitration
+             that produces work needs its treating ticket opened first: the tool
+             engraves `--by` verbatim without validating it, so an id not yet
+             allocated engraves a ticket that does not exist
+             ⛔ ids are never invented, and never derived from a listing read
+             earlier in the conversation — step 3 blocks for an arbitrarily long
+             time, and a parallel session can take the number meanwhile. The
+             next free id is observed immediately before `new`, not before
+
+  5 specs    each spec body is written — scope, test list, verification — under
+             the seven checks, re-read from their file rather than from memory
+
+  5.5 chall. N fresh challengers, dosed on the batch size, reading only the spec
+             files just written. Their arbitration is written into the spec
+
+  6 triplet  `backlog mature <ID> --model … --effort … --review … --date …`,
+             one call per ticket, the date passed explicitly because the CLI
+             never invents one. The regime is indexed on the ticket's STATUS,
+             not on whether the triplet changed — and a `todo`+ ticket whose
+             triplet is unchanged gets NO call at all, because `mature` would
+             rewrite `matured` to today and erase the date the triplet was
+             really decided. `parked`/`wont` stop: they are a commitment, not a
+             pipeline stage, and un-parking comes first
+
+  recap      ⚠️ displayed BEFORE the first mutation, not after. It enumerates the
+             five side effects the rest will produce, and steps 4, 5.5 and 6
+             mutate nothing until it is approved. It is written last in the
+             skill file only because the batch has to be known to fill it in —
+             a recap shown afterwards protects nothing, and answering "no" to it
+             would no longer cancel anything
+```
+
+The shape worth noticing: **one blocking point (arbitration) and one barrier
+(the recap)**, and everything else runs without asking. Compare that with the
+back half, where the human's touchpoints are also decisions and never mechanics.
+
 ### Lifecycle hooks tied to the git flow
 
 The back half of the lifecycle (`wip → merged → shipped`) is **never set by
@@ -830,7 +895,8 @@ The division of labor matters: **the human never runs the CLI, never writes
 frontmatter, and never edits the spec files directly**. You steer in
 conversation; the agent does all the mechanics through the CLI (that is what
 makes the mutations deterministic — the agent has no hand-editing path). A
-typical cycle, as it actually happens:
+typical cycle, as it actually happens — the maturation block is compressed here
+because it has [its own walkthrough](#how-a-batch-gets-matured-end-to-end) above:
 
 ```
 you        open a conversation on a fresh worktree:
