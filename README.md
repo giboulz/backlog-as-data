@@ -489,6 +489,14 @@ stayed in its lane and the most lane-disciplined reviewer found the *least*.
 `deep` buys three decorrelated samples of the same diff, not three complementary
 coverages.
 
+⚠️ **"In parallel" is a property of how they are spawned, not of a flag.** The
+three reviewers go out as three `Agent` calls **in a single message** — that
+grouping is what makes them concurrent; a background flag does not. Spawned one
+per message they run in sequence, and the gate silently costs three times the
+wall-clock it should while looking identical in the register. This is written
+down because it recurred: knowing the rule turns out not to be the same as
+performing it under load.
+
 Decorrelation is protected mechanically, not just intended. At `deep` each
 reviewer writes to its **own** report file, outside any repository — never a
 shared one, because with a shared file a reviewer would read another's findings
@@ -625,7 +633,14 @@ disposition with the SHA that fixed it or the ticket that inherited it. The spli
 is the same one as everywhere else. What the orchestrator *decided*, it passes as
 arguments; what can be *observed* — token counts, the run's rank in the session —
 the writer reads from the transcript, and the orchestrator is not allowed to
-declare it. Two consequences fell out of that. The command has to be run by the
+declare it.
+
+One quantity refused to be read that way, and it is the one that matters most
+here: **the transcript carries no `cache_read` for sub-agents**, which is exactly
+the dominant term of a cycle's cost. So there is a small local OTLP collector
+listening on loopback for the harness's own token-usage telemetry, writing one
+snapshot per session. It exists for a single missing number — and the split holds
+even there: it *observes*, it never lets anything declare. Two consequences fell out of that. The command has to be run by the
 orchestrator from its own shell, because a sub-agent running it would measure
 **its own** transcript — a different quantity, silently. And a finding's fix SHA
 is recorded before integration rebases it, so the writer itself checks whether
@@ -706,6 +721,72 @@ The five, as of this snapshot: skill 104,320 · `prompts/` 67,863 · `steps/`
 10,535 · `CLAUDE.md` 13,125 · `rules/` 9,659. They are in
 [`claude-config/__tests__/skill-size-ceiling-coherence.test.js`](claude-config/__tests__/skill-size-ceiling-coherence.test.js),
 where each one carries, in a comment, the dated reason it was last raised.
+
+## The other budget: what a session costs, and where to cut it
+
+The ceilings above bound a **file**. They say nothing about the quantity that
+actually gets spent, which is the context a session carries from one ticket to
+the next. Two rules bound that one:
+
+- **Mature continuously** — in the session where the question comes up, rather
+  than accumulating tickets to mature in a dedicated launching session.
+- **Launch in waves of three to five tickets**, then open a fresh session.
+
+⚠️ Do not confuse that wave with the other one. Tickets sharing a **data file**
+under a coherence test (fixtures, translations) go one at a time, the second
+after the first has merged. The two rules answer different risks and stack; the
+session rule never relaxes the fixture rule.
+
+The motive is not prompt size. The call prompt carries only variables now, so
+there is no mass left to lose there. It is the three-beat loop the orchestrator
+holds per ticket — spawn, gate, corrector — sustained over a lengthening session:
+attaching each notification to the right ticket, writing the register, and above
+all the measurement step, which **writes to disk** and whose error (a final SHA
+borrowed from the neighbouring ticket, say) is irrecoverable and silent. Plus a
+conduct risk that is specific to this system: the chain can rewrite
+`sdd-run-ticket.md` *under the session executing it* — an integration mid-session
+replaces that file in the live checkout — desynchronising the orchestrator's
+in-context copy from disk.
+
+**And there is a measured motive**, which is worth reproducing with its caveats
+intact, because the caveats are the interesting part. Cost per cycle tends to
+grow with the cycle's rank in the session — mechanically: each turn re-reads a
+context that grew with every ticket. One session, five `deep` cycles, measured in
+`cache_read` (the dominant term, far ahead of output):
+
+| rank | ticket | cycle `cache_read` |
+|---|---|---|
+| 0 | SKILL-26 | 10.6 M |
+| 1 | SKILL-28 | 14.7 M |
+| 2 | SKILL-31 | 17.6 M — +66% on the first |
+| 3 | SKILL-48 | 15.4 M |
+
+The progression is **not monotonic** — rank 3 falls back below rank 2 — so
+"grows" reads as a tendency, not a law verified at each step. The scope recorded
+is session-to-date, so these are deltas computed by hand. The session's fifth
+cycle is skewed by a parallel launch, and a cycle in another session carries a
+*negative* delta, its transcript having probably been compacted. The orders of
+magnitude hold; a strictly increasing progression does not.
+
+**So the number three-to-five does not come from that table.** It comes from the
+usage distribution: the observed median is 2 launches per session, and 87% of
+sessions already sit under 5. The rule codifies a practice that was already the
+majority and bounds the rare case that goes beyond. The table explains **why** to
+split a session, never **where** to cut — and saying so is the difference between
+a measured threshold and an assumed order of magnitude presented as one.
+
+**The honest ending: this doctrine has no measurable horizon of retirement.**
+Every rule here is supposed to carry the condition under which it would be
+dropped, and this one's turns out not to be applicable. No field recorded per
+cycle can discriminate a valid final SHA from one borrowed from the neighbouring
+ticket — the existing check only observes that the SHA exists and is well formed,
+never its *provenance*, and a borrowed SHA exists just as much. The obvious
+candidate, reachability from the ticket's branch, can never do it either: a
+ticket's branch is cut from live `main`, so anything already merged before that
+branch was born — a neighbour's SHA included — is trivially reachable from it.
+The retirement trigger, written before that limit was understood, is therefore
+**not executable as written**. It is kept in the skill for the record rather than
+deleted, labelled as such.
 
 ## How a ticket flows (end to end)
 
@@ -1289,6 +1370,33 @@ roughly in increasing order of effort:
    you work. The cheap half is the capture tier and the `n ≥ 2` threshold; the
    expensive half is the discipline of routing to a home that already exists
    instead of writing a new rule.
+
+Two more, from the skills that carry the most design and are easiest to overlook
+as monoliths. Neither requires adopting the skill it comes from.
+
+6. **From [`/mature`](claude-config/commands/mature.md): the batch as the unit,
+   and escalations read before arguments.** Maturation happens mid-conversation
+   over several tickets at once, so a command whose unit is one ticket is the
+   wrong shape for the gesture people actually make — that observation alone
+   restructures a planning command. And because closing an escalation *is*
+   re-maturing, the skill reads the open ones itself and switches into
+   arbitration without being asked: one verb instead of two, and no way to
+   forget the ones waiting. The transplantable core is
+   [the seven checks](claude-config/rules/maturation.md) and the closure
+   diagnosis — naming **which check should have caught it**, with `none` forcing
+   a ticket against the method itself. That is a retro loop wired into a gate,
+   and it costs one line per closure.
+7. **From [`/sdd-run-ticket`](claude-config/commands/sdd-run-ticket.md): the
+   three-beat loop and its fail-closed guards.** Not the 100 KB — the shape. The
+   orchestrator holds one loop per ticket (spawn → gate → corrector) and is
+   never allowed to be the thing it audits: the sub-agent attests to nothing,
+   every guard stops rather than improvises (ticket not found, maturation not on
+   `main`, dirty tree, SHA mismatch), and every mechanical step that once lived
+   as prose was moved into a script that emits JSON. Two cheap pieces to steal
+   whole: **spawning parallel sub-agents in one message** rather than one per
+   message, and the
+   [session budget](#the-other-budget-what-a-session-costs-and-where-to-cut-it) —
+   waves of a few tickets, then a fresh session, for a cost that grows with rank.
 
 ## License
 
